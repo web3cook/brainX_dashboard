@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+@theme {
+  /* surfaces, darkest to lightest */
+  --color-shell: #050705;
+  --color-void: #070907;
+  --color-stage: #0a0a0a;
+  --color-inset: #0d120d;
+  --color-rail: #080a08;
+  --color-panel: #0a0d0a;
+  --color-topbar: #0c0f0c;
+  --color-card: #0d100d;
+  --color-chip: #0f140f;
+  --color-chip-hover: #12190f;
+  --color-msg: #101410;
+  --color-glyph: #141c14;
+  --color-beat: #0f1f12;
+
+  /* hairlines and tracks */
+  --color-line: #1a1a1a;
+  --color-line-green: #1f2b1f;
+  --color-track: #161c16;
+  --color-edge: #2f5f3f;
+
+  /* accents */
+  --color-acid: #12f94b;
+  --color-acid-hi: #7dffab;
+  --color-acid-dim: #2f9f4f;
+  --color-amber: #ffb545;
+  --color-danger: #ff5f56;
+
+  /* text */
+  --color-ink: #e6e6e6;
+
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+}
+
+/* Declared at top level (not in @theme) so they are always emitted — the design
+   reuses each keyframe at several durations via arbitrary animation utilities. */
+@keyframes blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.1;
+  }
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(6px);
+  }
+}
+
+@keyframes glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  scroll-behavior: smooth;
+}
+
+a {
+  color: var(--color-acid);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--color-acid-hi);
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-green);
+  border-radius: 5px;
+}
+
+/* Keep the terminal cursor blink (it carries meaning) but drop the purely
+   decorative ambient motion. */
+@media (prefers-reduced-motion: reduce) {
+  html,
+  body {
+    scroll-behavior: auto;
+  }
+
+  [data-ambient-motion] {
+    animation: none !important;
+  }
+}
