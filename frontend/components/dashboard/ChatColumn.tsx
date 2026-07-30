@@ -73,7 +73,7 @@ export function ChatColumn({
       >
         {chat.length === 0 && (
           <div className="text-[11px] leading-[1.6] text-[#6f6f6f]">
-            Tell the CMO what you want the team to work on — a brief, a goal,
+            Tell the CMO what you want the team to work on, a brief, a goal,
             a rough idea. It&rsquo;ll come back with a plan.
           </div>
         )}

@@ -44,7 +44,7 @@ export function RunsColumn({ stats, runs, liveCount, onSelectRun }: Props) {
 
         {runs.length === 0 ? (
           <div className="text-[11px] text-[#6f6f6f]">
-            No agents spawned yet — approve the CMO&apos;s plan to get started.
+            No agents spawned yet, approve the CMO&apos;s plan to get started.
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-2">

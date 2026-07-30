@@ -1,4 +1,4 @@
-"""Linkedin Scout — dummy stand-in for `social.*`.
+"""Linkedin Scout, dummy stand-in for `social.*`.
 
 Real version (not built this pass): people worth connecting with on
 LinkedIn, plus posts and replies for that platform specifically.
@@ -33,7 +33,7 @@ class LinkedinScoutAgent(BaseAgent):
                 payload={"target": "linkedin.post_draft"},
             ),
             StepDef(
-                label="Draft complete — 280 words, native tone (not a press release)",
+                label="Draft complete, 280 words, native tone (not a press release)",
                 kind="write",
                 significance="milestone",
                 payload={"words": 280},
@@ -51,7 +51,7 @@ class LinkedinScoutAgent(BaseAgent):
         return [
             ArtifactDef(
                 kind="outreach_list",
-                title="LinkedIn profiles worth contacting — ranked by audience overlap",
+                title="LinkedIn profiles worth contacting, ranked by audience overlap",
                 format="csv",
                 content=(
                     "name,headline,audience_overlap,note\n"

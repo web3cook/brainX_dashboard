@@ -1,6 +1,8 @@
 import type { DashboardState, Guardrail } from "@/lib/dashboard/state";
 import {
   PROFILE_ROWS,
+  fmtTokens,
+  usd,
   type DetailView,
   type HistoryRow,
   type RosterRow,
@@ -90,8 +92,20 @@ export function RunDetailPanel({ detail }: { detail: DetailView }) {
 
 /* ------------------------------------------------------------- analytics */
 
+const UsageRow = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex justify-between text-[10.5px] text-[#9f9f9f]">
+    <span>{label}</span>
+    <span className="text-ink">{value}</span>
+  </div>
+);
+
 export function AnalyticsPanel({ state }: { state: DashboardState }) {
   const phases = state.plan?.phases ?? [];
+  const { measured, simulated, byAgent } = state.usage;
+  const grandTokens = measured.totalTokens + simulated.totalTokens;
+  const grandCost = measured.costUsd + simulated.costUsd;
+  const agentRows = Object.entries(byAgent).sort((a, b) => b[1].costUsd - a[1].costUsd);
+  const maxAgentCost = Math.max(...agentRows.map(([, v]) => v.costUsd), 0.000001);
 
   return (
     <div className="flex flex-col gap-5">
@@ -99,7 +113,7 @@ export function AnalyticsPanel({ state }: { state: DashboardState }) {
         <SectionLabel>RUN</SectionLabel>
         <div className="flex justify-between text-[11px] text-[#c8c8c8]">
           <span>state</span>
-          <span className="text-acid font-bold">{state.runState ?? "—"}</span>
+          <span className="text-acid font-bold">{state.runState ?? "none"}</span>
         </div>
         <div className="flex justify-between text-[11px] text-[#c8c8c8]">
           <span>autonomy</span>
@@ -107,11 +121,65 @@ export function AnalyticsPanel({ state }: { state: DashboardState }) {
         </div>
       </div>
 
+      {grandTokens > 0 && (
+        <div className="flex flex-col gap-2.5">
+          <SectionLabel>TOKENS &amp; SPEND</SectionLabel>
+          <div className="flex items-baseline justify-between">
+            <span className="text-[19px] font-extrabold tracking-[-.5px]">{usd(grandCost)}</span>
+            <span className="text-[10.5px] text-[#8a8a8a]">{fmtTokens(grandTokens)} tokens</span>
+          </div>
+
+          <div className="flex flex-col gap-[5px] border-l-2 border-[#1f2b1f] pl-2.5">
+            <div className="text-[9.5px] tracking-[.1em] text-[#6f7f6f]">
+              MEASURED · AI CMO planning
+            </div>
+            <UsageRow label="input" value={fmtTokens(measured.inputTokens)} />
+            <UsageRow label="output" value={fmtTokens(measured.outputTokens)} />
+            <UsageRow label="cache read" value={fmtTokens(measured.cacheReadTokens)} />
+            <UsageRow label="cache write" value={fmtTokens(measured.cacheWriteTokens)} />
+            <UsageRow label="cost" value={usd(measured.costUsd)} />
+          </div>
+
+          {simulated.totalTokens > 0 && (
+            <div className="flex flex-col gap-[5px] border-l-2 border-[#3a3320] pl-2.5">
+              <div className="text-[9.5px] tracking-[.1em] text-[#8a7f5f]">
+                SIMULATED · subagents
+              </div>
+              <div className="text-[9.5px] leading-[1.5] text-[#6f6f6f]">
+                Dummy subagents make no LLM call. These figures are synthetic.
+              </div>
+              <UsageRow label="tokens" value={fmtTokens(simulated.totalTokens)} />
+              <UsageRow label="cost" value={usd(simulated.costUsd)} />
+            </div>
+          )}
+
+          {agentRows.length > 1 && (
+            <div className="mt-1 flex flex-col gap-2">
+              <div className="text-[9.5px] tracking-[.1em] text-[#6f7f6f]">BY AGENT</div>
+              {agentRows.map(([name, v]) => (
+                <div key={name} className="flex flex-col gap-[4px]">
+                  <div className="flex justify-between text-[10.5px]">
+                    <span className="text-[#c8c8c8]">{name.replace(/_/g, " ")}</span>
+                    <span className="text-acid">{usd(v.costUsd)}</span>
+                  </div>
+                  <div className="bg-track h-[3px] rounded-sm">
+                    <div
+                      className="bg-acid-dim h-full rounded-sm transition-[width] duration-500 ease-linear"
+                      style={{ width: `${Math.max(2, (v.costUsd / maxAgentCost) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-col gap-2.5">
         <SectionLabel>PLAN</SectionLabel>
         {phases.length === 0 && (
           <div className="text-[10.5px] text-[#6f6f6f]">
-            No plan yet — send the CMO a brief to get one.
+            No plan yet, send the CMO a brief to get one.
           </div>
         )}
         {phases.map((p, i) => (
@@ -195,7 +263,7 @@ export function SettingsPanel({
       <div className="flex flex-col gap-2.5">
         <SectionLabel>GUARDRAILS</SectionLabel>
         <div className="text-[9.5px] leading-[1.5] text-[#5f5f5f]">
-          Cosmetic in this build — not enforced by the backend yet.
+          Cosmetic in this build, not enforced by the backend yet.
         </div>
         {guardrails.map((t, i) => (
           <button

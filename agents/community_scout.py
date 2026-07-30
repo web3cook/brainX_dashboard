@@ -1,4 +1,4 @@
-"""Community Scout — dummy stand-in for `reddit.*`.
+"""Community Scout, dummy stand-in for `reddit.*`.
 
 Real version (not built this pass): relevant subreddits and threads, reply
 opportunities.
@@ -39,7 +39,7 @@ class CommunityScoutAgent(BaseAgent):
                 payload={"target": "r/devtools thread"},
             ),
             StepDef(
-                label="Held 1 reply for manual review — house rules ban same-day self-promo",
+                label="Held 1 reply for manual review, house rules ban same-day self-promo",
                 kind="write",
                 significance="finding",
                 payload={"reason": "no self-promo same day", "held": True},

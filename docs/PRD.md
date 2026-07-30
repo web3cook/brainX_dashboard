@@ -1,4 +1,4 @@
-# PRD — brainX: an AI CMO you can watch, stop, and redirect
+# PRD, brainX: an AI CMO you can watch, stop, and redirect
 
 **Status:** v0.1, for POC scoping
 **Assignment:** X-ARC Agentic AI Engineer take-home (Harness)
@@ -70,11 +70,11 @@ The brief says pick and go deep. Here is the call.
 
 ### Building deep
 
-**P1 — Making a deep run legible** *(mandatory, carries the most weight)*
+**P1, Making a deep run legible** *(mandatory, carries the most weight)*
 
-**P2 — Operator control** *(our differentiator)*
+**P2, Operator control** *(our differentiator)*
 
-**P3 — Plan-level approval** *(scoped down, see below)*
+**P3, Plan-level approval** *(scoped down; see below)*
 
 ### Cut, and why
 
@@ -95,31 +95,31 @@ The brief says pick and go deep. Here is the call.
 
 The core problem: an eight-minute run with 60+ nested calls must be answerable at a glance.
 
-**R1.1 — Three-layer timeline.** The run renders as a hierarchy, not a log.
+**R1.1, Three-layer timeline.** The run renders as a hierarchy, not a log.
 
 ```
 Phase          "Understanding the market"           ← always visible, ~5 per run
   └ Task       "Market Scout: competitor teardown"  ← collapsed by default when done
-      └ Step   "Read pricing page — acme.com"       ← revealed on drill-in
+      └ Step   "Read pricing page, acme.com"       ← revealed on drill-in
 ```
 
 - **Phases** are declared by the CMO in its plan up front. This is what makes progress estimable.
 - **Tasks** are subagent invocations or significant orchestrator work units.
 - **Steps** are individual tool calls, phrased in marketing language.
 
-**R1.2 — The "right now" line.** A persistent header states, in one sentence, what is happening this second, plus phase N of M and elapsed time. This is the single most important pixel in the product. If the operator reads nothing else, they read this.
+**R1.2, The "right now" line.** A persistent header states, in one sentence, what is happening this second, plus phase N of M and elapsed time. This is the single most important pixel in the product. If the operator reads nothing else, they read this.
 
-**R1.3 — Subagents render as coherent nested units, never interleaved.** A running subagent is one card that expands. Its internal steps live inside that card and stream within it. Two subagents running concurrently are two cards updating side by side, not two interleaved streams. **When the subagent finishes, the card collapses to a one-line finding** ("Market Scout: 4 competitors, all under-serving mid-market compliance") and its 20 steps go behind a disclosure.
+**R1.3, Subagents render as coherent nested units, never interleaved.** A running subagent is one card that expands. Its internal steps live inside that card and stream within it. Two subagents running concurrently are two cards updating side by side, not two interleaved streams. **When the subagent finishes, the card collapses to a one-line finding** ("Market Scout: 4 competitors, all under-serving mid-market compliance") and its 20 steps go behind a disclosure.
 
-**R1.4 — Progressive collapse.** Completed phases auto-collapse to a summary line. Only the active phase is expanded. The operator scrolls a page of findings, not a wall of logs.
+**R1.4, Progressive collapse.** Completed phases auto-collapse to a summary line. Only the active phase is expanded. The operator scrolls a page of findings, not a wall of logs.
 
-**R1.5 — Drill-in without losing place.** Expanding any node is in-place and non-destructive. Raw detail (actual tool name, arguments, response) is available at the deepest level, behind an explicit "show technical detail" affordance — present for trust, absent by default.
+**R1.5, Drill-in without losing place.** Expanding any node is in-place and non-destructive. Raw detail (actual tool name, arguments, response) is available at the deepest level, behind an explicit "show technical detail" affordance, present for trust, absent by default.
 
-**R1.6 — Findings are first-class.** Steps that produced a durable insight or artifact are visually distinct from steps that were plumbing. Noise recedes, substance stays.
+**R1.6, Findings are first-class.** Steps that produced a durable insight or artifact are visually distinct from steps that were plumbing. Noise recedes, substance stays.
 
 ### 5.2 Operator control (P2)
 
-**R2.1 — Autonomy ladder.** Three modes, set at brief time and changeable mid-run:
+**R2.1, Autonomy ladder.** Three modes, set at brief time and changeable mid-run:
 
 | Mode | Operator-facing copy | Behaviour |
 |---|---|---|
@@ -129,36 +129,36 @@ Phase          "Understanding the market"           ← always visible, ~5 per r
 
 No mention of permissions, sandboxes, or tools. The ladder is about *delegation trust*, which is a concept Maya already uses daily with humans.
 
-**R2.2 — Plan approval.** Before executing, the CMO presents its plan as a readable phase list with rationale and expected outputs. The operator can:
+**R2.2, Plan approval.** Before executing, the CMO presents its plan as a readable phase list with rationale and expected outputs. The operator can:
 
 - Approve as-is
-- **Edit before approving** — reorder phases, delete a phase, or rewrite a phase's instruction in plain text
+- **Edit before approving**, reorder phases, delete a phase, or rewrite a phase's instruction in plain text
 - Reject with a note, which sends the CMO back to re-plan
 
-**R2.3 — Interrupt mid-flight.** A Stop control is always visible during a run. On stop:
+**R2.3, Interrupt mid-flight.** A Stop control is always visible during a run. On stop:
 
 1. In-flight tool calls are cancelled; subagents receive a cancellation signal and unwind.
 2. The run writes a **checkpoint**: everything learned so far, structured and durable.
-3. The CMO generates a **stop summary** — what it had done, what it had found, what it was about to do next, in plain language.
+3. The CMO generates a **stop summary**, what it had done, what it had found, what it was about to do next, in plain language.
 4. The run enters `stopped` and the UI asks a single question: **"What should we do differently?"**
 
 **This is the product's signature moment.** Stopping is not an abort. It is a conversation.
 
-**R2.4 — Redirect without discarding work.** From `stopped`, the operator types a redirect. The CMO re-plans *given the checkpoint*, showing explicitly what it will keep and what it will discard. Completed phases whose findings remain valid are not re-run. The operator approves the revised plan and execution continues.
+**R2.4, Redirect without discarding work.** From `stopped`, the operator types a redirect. The CMO re-plans *given the checkpoint*, showing explicitly what it will keep and what it will discard. Completed phases whose findings remain valid are not re-run. The operator approves the revised plan and execution continues.
 
-**R2.5 — Queue a message.** While the run is executing, the operator can send a message without stopping. It is visibly queued ("Will be read at the end of this phase") and injected at the next phase boundary. The operator can cancel a queued message before it lands.
+**R2.5, Queue a message.** While the run is executing, the operator can send a message without stopping. It is visibly queued ("Will be read at the end of this phase") and injected at the next phase boundary. The operator can cancel a queued message before it lands.
 
-**R2.6 — Interrupt latency budget.** Stop must visibly acknowledge within 500ms and reach a fully checkpointed `stopped` state within 5 seconds. If a tool call cannot be cancelled quickly, the UI says so explicitly ("Finishing one last lookup, then stopping") rather than freezing.
+**R2.6, Interrupt latency budget.** Stop must visibly acknowledge within 500ms and reach a fully checkpointed `stopped` state within 5 seconds. If a tool call cannot be cancelled quickly, the UI says so explicitly ("Finishing one last lookup, then stopping") rather than freezing.
 
 ### 5.3 Trust and consequential actions (P3, scoped)
 
-**R3.1 — Consequence classes.** Every tool is tagged `read`, `write`, or `publish`. Only `publish` (posting to Reddit/LinkedIn/X, sending, spending) requires the operator's explicit sign-off, regardless of autonomy mode. This is the one thing "Just run it" does not cover, and the copy says so.
+**R3.1, Consequence classes.** Every tool is tagged `read`, `write`, or `publish`. Only `publish` (posting to Reddit/LinkedIn/X, sending, spending) requires the operator's explicit sign-off, regardless of autonomy mode. This is the one thing "Just run it" does not cover, and the copy says so.
 
-**R3.2 — Publish approval carries a preview.** The operator sees the exact final content, target, and time. Editable inline before approving.
+**R3.2, Publish approval carries a preview.** The operator sees the exact final content, target, and time. Editable inline before approving.
 
-**R3.3 — Non-blocking approvals.** A pending approval does **not** freeze the run. The run continues on independent work and the approval waits in a tray with a count badge. Only work genuinely downstream of the approval blocks, and it renders as "waiting on you" rather than "stalled". This is a deliberate answer to the brief's question about what happens to the run and to the watcher while an approval is pending.
+**R3.3, Non-blocking approvals.** A pending approval does **not** freeze the run. The run continues on independent work and the approval waits in a tray with a count badge. Only work genuinely downstream of the approval blocks, and it renders as "waiting on you" rather than "stalled". This is a deliberate answer to the brief's question about what happens to the run and to the watcher while an approval is pending.
 
-**R3.4 — Read/write ledger.** Every run has a "What it touched" view: everything read, everything written, everything published, with timestamps. Available during and after the run.
+**R3.4, Read/write ledger.** Every run has a "What it touched" view: everything read, everything written, everything published, with timestamps. Available during and after the run.
 
 ### 5.4 Failure states
 
@@ -168,13 +168,13 @@ Each of these is a designed screen, not a stack trace:
 |---|---|
 | A tool call fails | The step shows amber with a plain-language reason ("Couldn't reach that site"). The agent continues; the failure is recorded in the phase summary. |
 | A tool fails repeatedly | The phase halts with "I'm stuck on X" and offers: skip this phase / retry / stop and redirect. |
-| Model error or rate limit | Run pauses in a `degraded` state with "Thinking is temporarily unavailable — retrying in Ns". Auto-retry with backoff, visible countdown. |
+| Model error or rate limit | Run pauses in a `degraded` state with "Thinking is temporarily unavailable, retrying in Ns". Auto-retry with backoff, visible countdown. |
 | Run dies mid-flight | Run enters `failed` with the last checkpoint intact. UI: "This run stopped unexpectedly at phase 3 of 5. Everything up to that point is saved." Resume is offered. |
 | Subagent fails | Parent card shows the subagent as failed with its partial findings preserved. Parent decides to continue or escalate. |
 
 ### 5.5 Deliverables from a run (thin P5)
 
-Artifacts (strategy doc, keyword table, draft posts, outreach list) accumulate in a **Deliverables** panel during the run, not just at the end. Each renders as a formatted document — never a code block — and is downloadable as markdown or CSV.
+Artifacts (strategy doc, keyword table, draft posts, outreach list) accumulate in a **Deliverables** panel during the run, not just at the end. Each renders as a formatted document, never a code block, and is downloadable as markdown or CSV.
 
 ---
 
@@ -182,7 +182,7 @@ Artifacts (strategy doc, keyword table, draft posts, outreach list) accumulate i
 
 **Rejected:** dark background, purple gradient, glowing orb, chat bubbles, sparkle icons.
 
-**Chosen:** *a marketing war room, rendered as a working document.* Light, dense, typographic. The reference points are Linear's information density and a well-kept planning doc — not a chat app. Chrome is minimal because the content is the product. One accent colour used strictly for "needs you"; everything else is greyscale with state carried by typography and weight rather than colour. Monospace only where it is genuinely data (metrics, URLs, timestamps). The run reads top-to-bottom like a document being written in real time, because that is what it is, and because a document is a thing Maya already knows how to read and skim.
+**Chosen:** *a marketing war room, rendered as a working document.* Light, dense, typographic. The reference points are Linear's information density and a well-kept planning doc, not a chat app. Chrome is minimal because the content is the product. One accent colour used strictly for "needs you"; everything else is greyscale with state carried by typography and weight rather than colour. Monospace only where it is genuinely data (metrics, URLs, timestamps). The run reads top-to-bottom like a document being written in real time, because that is what it is, and because a document is a thing Maya already knows how to read and skim.
 
 ---
 
@@ -191,11 +191,11 @@ Artifacts (strategy doc, keyword table, draft posts, outreach list) accumulate i
 The POC is done when, in a single unbroken demo:
 
 1. A brief produces a plan; the operator edits one phase and approves it.
-3. At any frozen frame of the run, a viewer can state what is happening now, what is done, and how far through it is — from the screen alone.
+3. At any frozen frame of the run, a viewer can state what is happening now, what is done, and how far through it is, from the screen alone.
 4. A completed subagent's 20 steps are collapsed behind a one-line finding, and expand in place.
 5. The operator queues a message mid-run; it lands at the next phase boundary and visibly changes behaviour.
 6. The operator stops the run mid-phase; a stop summary appears within 5 seconds; the operator types a redirect; the run resumes without re-running completed work.
-7. A publish action is proposed, previewed, edited, and approved — while the rest of the run keeps moving.
+7. A publish action is proposed, previewed, edited, and approved, while the rest of the run keeps moving.
 8. A tool is deliberately broken; the operator sees a designed state and a way forward.
 9. Deliverables are readable and downloadable.
 
@@ -209,6 +209,6 @@ Multi-tenant, teams, billing, real platform integrations, mobile, accessibility 
 
 ## 9. Open questions
 
-1. Should the autonomy ladder be settable per phase rather than per run? (Leaning no for the POC — extra concept for the operator to hold.)
+1. Should the autonomy ladder be settable per phase rather than per run? (Leaning no for the POC, extra concept for the operator to hold.)
 2. Does the stop summary need to be LLM-generated, or is a structured template sufficient and faster? (Leaning LLM-generated: this is a showcase moment, and the quality gap is visible.)
 3. How many concurrent subagents before the UI stops being legible? Needs a live test at 2, 3, and 5.

@@ -1,4 +1,4 @@
-# API surface — brainX backend
+# API surface, brainX backend
 
 **Status:** v0.1, for review before backend implementation begins
 **Companion to:** `docs/ARCHITECTURE.md`, `docs/DB_SCHEMA.md`
@@ -8,7 +8,7 @@
 
 ## The transport model in one paragraph
 
-A first-time visit to the dashboard is a plain REST call: the Next.js server calls `POST /bootstrap` with the signed-in user's email, gets back a user id and their run list, and the page renders from that — no socket exists yet. Once the dashboard is mounted, the client opens exactly one WebSocket per open run (`GET /runs/{id}/live`) to receive live chat replies and the run's event stream, and to send chat messages back. Every other action the operator takes — approving a plan, stopping a run, queuing a message, granting a publish approval, downloading an artifact — is a discrete REST call with its own HTTP response, never a fire-and-forget frame on the socket. This split exists because REST calls that must survive a flaky connection (stop, approve, queue) need a real response to know they landed; the socket is for the two things that are inherently a stream (chat, live events), not for control-plane actions.
+A first-time visit to the dashboard is a plain REST call: the Next.js server calls `POST /bootstrap` with the signed-in user's email, gets back a user id and their run list, and the page renders from that, no socket exists yet. Once the dashboard is mounted, the client opens exactly one WebSocket for the whole session (`GET /live`) and multiplexes every run over it via `subscribe`/`unsubscribe` frames, receiving live chat replies and event streams and sending chat messages back. Every other action the operator takes, approving a plan, stopping a run, queuing a message, granting a publish approval, downloading an artifact, is a discrete REST call with its own HTTP response, never a fire-and-forget frame on the socket. This split exists because REST calls that must survive a flaky connection (stop, approve, queue) need a real response to know they landed; the socket is for the two things that are inherently a stream (chat, live events), not for control-plane actions.
 
 ---
 
@@ -28,7 +28,7 @@ A first-time visit to the dashboard is a plain REST call: the Next.js server cal
 | 400 | `validation_error` | Malformed request body |
 | 404 | `not_found` | Run/scope/approval/artifact id doesn't exist |
 | 409 | `illegal_state_transition` | e.g. `POST /stop` on a run that's already `stopped` |
-| 500 | `internal_error` | Unhandled — includes a `request_id` for correlating with logs |
+| 500 | `internal_error` | Unhandled, includes a `request_id` for correlating with logs |
 
 ---
 
@@ -57,7 +57,7 @@ First-visit call. Finds-or-creates the `users` row by email (see `docs/DB_SCHEMA
 
 ### `POST /runs`
 
-Create a run from a brief. Triggers the CMO planner (real Claude call) synchronously — the response includes the generated plan; the run starts in `planning` and moves to `awaiting_plan_approval` once the plan lands (or straight into it, same request/response cycle for this skeleton — planning is fast enough not to need its own async round trip).
+Create a run from a brief. Triggers the CMO planner (real Claude call) synchronously, the response includes the generated plan; the run starts in `planning` and moves to `awaiting_plan_approval` once the plan lands (or straight into it, same request/response cycle for this skeleton, planning is fast enough not to need its own async round trip).
 
 **Request**
 ```json
@@ -126,7 +126,7 @@ Full run detail including the current plan.
 
 ### `GET /runs/{id}/events?since={seq}`
 
-Backfill — returns every `run_events` row with `seq > since`, in order. Used by the WebSocket handshake (§ below) and available standalone for polling/debugging.
+Backfill, returns every `run_events` row with `seq > since`, in order. Used by the WebSocket handshake (§ below) and available standalone for polling/debugging.
 
 **Response `200`**
 ```json
@@ -142,37 +142,37 @@ Backfill — returns every `run_events` row with `seq > since`, in order. Used b
 
 ### `POST /runs/{id}/plan/approve`
 
-Approve the current plan, optionally with edits (reorder/delete/rewrite a phase — PRD R2.2).
+Approve the current plan, optionally with edits (reorder/delete/rewrite a phase, PRD R2.2).
 
 **Request**
 ```json
 { "edited_plan": { "phases": [ /* full replacement Plan, or omit for as-is approval */ ] } }
 ```
 
-**Response `200`** — `{ "run": { "state": "running", ... } }`. Emits `plan.approved` (and `plan.edited` first, if `edited_plan` was sent).
+**Response `200`**, `{ "run": { "state": "running", ... } }`. Emits `plan.approved` (and `plan.edited` first, if `edited_plan` was sent).
 
 ---
 
 ### `POST /runs/{id}/plan/reject`
 
-**Request** — `{ "note": "Skip Reddit entirely, we don't have a presence there yet." }`
-**Response `200`** — run returns to `planning`; the CMO re-plans given the note. Emits `plan.rejected`.
+**Request**, `{ "note": "Skip Reddit entirely, we don't have a presence there yet." }`
+**Response `200`**, run returns to `planning`; the CMO re-plans given the note. Emits `plan.rejected`.
 
 ---
 
 ### `POST /runs/{id}/stop`
 
-**Dedicated REST endpoint — never accepted over the WebSocket, by design (see transport paragraph above).**
+**Dedicated REST endpoint, never accepted over the WebSocket, by design (see transport paragraph above).**
 
-**Request** — empty body.
-**Response `202`** — `{ "run": { "state": "stopping" } }`, returned within the PRD's 500ms acknowledgement budget. The run reaches `stopped` (with a checkpoint and CMO-generated summary) asynchronously; the client observes that transition via the `run.state` frame on the open WebSocket, not by polling this endpoint.
+**Request**, empty body.
+**Response `202`**, `{ "run": { "state": "stopping" } }`, returned within the PRD's 500ms acknowledgement budget. The run reaches `stopped` (with a checkpoint and CMO-generated summary) asynchronously; the client observes that transition via the `run.state_changed` event on the open WebSocket, not by polling this endpoint.
 
 ---
 
 ### `POST /runs/{id}/resume`
 
-**Request** — `{ "redirect": "Skip Reddit, go deeper on LinkedIn ICP" }` (redirect is optional — omit for a plain resume from checkpoint).
-**Response `200`** — if a redirect was given, returns a **revised** plan for approval (state → `awaiting_plan_approval` again) with each phase marked `keep | discard | revised | new` per `ARCHITECTURE.md` §6.3; if no redirect, resumes directly (state → `running`).
+**Request**, `{ "redirect": "Skip Reddit, go deeper on LinkedIn ICP" }` (redirect is optional, omit for a plain resume from checkpoint).
+**Response `200`**, if a redirect was given, returns a **revised** plan for approval (state → `awaiting_plan_approval` again) with each phase marked `keep | discard | revised | new` per `ARCHITECTURE.md` §6.3; if no redirect, resumes directly (state → `running`).
 
 ```json
 {
@@ -193,8 +193,8 @@ Approve the current plan, optionally with edits (reorder/delete/rewrite a phase 
 
 Queue a message mid-run (PRD R2.5). Delivered at the next phase boundary, never mid-phase.
 
-**Request** — `{ "body": "Also check our Discord for launch chatter" }`
-**Response `201`** — `{ "message": { "id": "uuid", "state": "queued", "deliver_after_phase_id": "uuid|null" } }`
+**Request**, `{ "body": "Also check our Discord for launch chatter" }`
+**Response `201`**, `{ "message": { "id": "uuid", "state": "queued", "deliver_after_phase_id": "uuid|null" } }`
 
 ### `DELETE /runs/{id}/messages/{mid}`
 
@@ -204,19 +204,19 @@ Cancel a queued message before it's delivered. **Response `200`** if still `queu
 
 ### `PATCH /runs/{id}/autonomy`
 
-Change autonomy mode mid-run. **Request** — `{ "autonomy_mode": "just_run" }`. **Response `200`**.
+Change autonomy mode mid-run. **Request**, `{ "autonomy_mode": "just_run" }`. **Response `200`**.
 
 ---
 
 ### `POST /approvals/{id}/grant`
 
-**Request** — `{ "edited_payload": { /* optional, operator-edited version of the proposed action */ } }`
-**Response `200`** — `{ "approval": { "state": "granted" } }`. Emits `approval.granted` (and `approval.edited` first, if edited).
+**Request**, `{ "edited_payload": { /* optional, operator-edited version of the proposed action */ } }`
+**Response `200`**, `{ "approval": { "state": "granted" } }`. Emits `approval.granted` (and `approval.edited` first, if edited).
 
 ### `POST /approvals/{id}/deny`
 
-**Request** — `{ "reason": "Too promotional for that subreddit's rules" }`
-**Response `200`** — `{ "approval": { "state": "denied" } }`.
+**Request**, `{ "reason": "Too promotional for that subreddit's rules" }`
+**Response `200`**, `{ "approval": { "state": "denied" } }`.
 
 ---
 
@@ -248,37 +248,37 @@ Read/write/publish ledger (PRD R3.4), backed by `tool_ledger`.
 
 ---
 
-## WebSocket — `GET /runs/{id}/live?since={seq}`
+## WebSocket, `GET /live`
 
-One socket per run, opened after the dashboard has already rendered from `/bootstrap` + `GET /runs/{id}`. `since` defaults to `0` on first connect; on reconnect the client passes its last-seen `seq` so the server can replay exactly what was missed before tailing live — the same backfill query `GET /runs/{id}/events?since=` uses, just delivered as a burst of frames instead of one JSON body.
+**One socket per operator session, not per run.** The client opens this once when the dashboard mounts and keeps it for the whole session, multiplexing every run it cares about over it. Switching runs is a frame on the existing connection, not a reconnect. Every outbound frame carries `run_id` so the client can route it.
 
-### Inbound (client → server) — one message type only
+### Inbound (client → server)
 
 ```jsonc
-{ "type": "chat.message", "body": "we are launching a new feature this week" }
+{ "type": "subscribe",    "run_id": "uuid", "since": 0 }   // backfill from `since`, then tail live
+{ "type": "unsubscribe",  "run_id": "uuid" }                // stop delivering this run
+{ "type": "chat.message", "run_id": "uuid", "body": "we are launching a new feature this week" }
 ```
-Nothing else is accepted inbound. Stop, resume, approvals, and queued messages are REST-only (see transport paragraph above); the server ignores/rejects any other `type` sent over this socket.
 
-### Outbound (server → client) — three message types
+`since` works exactly like `GET /runs/{id}/events?since=`, `0` on first subscribe; on reconnect the client passes its last-applied `seq` so the server replays only what was missed. Nothing else is accepted inbound: stop, resume, approvals, and queued messages are REST-only (see transport paragraph above), and any other `type` is ignored.
 
-**1. `event`** — a verbatim `run_events` row, unmodified:
+### Outbound (server → client)
+
+**1. `subscribed`**, acknowledges a subscribe, sent before that run's backfill burst:
 ```jsonc
-{ "type": "event", "event": {
+{ "type": "subscribed", "run_id": "uuid" }
+```
+
+**2. `event`**, a verbatim `run_events` row, tagged with the run it belongs to:
+```jsonc
+{ "type": "event", "run_id": "uuid", "event": {
   "run_id": "uuid", "seq": 1247, "ts": "2026-07-30T10:14:22.881Z",
   "scope_id": "uuid", "parent_scope_id": null, "phase_id": "uuid",
   "type": "step.started", "payload": { "label": "Reading Acme's pricing page", "kind": "read" }
 } }
 ```
 
-**2. `chat.reply`** — the CMO's conversational responses (distinct from the structured event stream):
-```jsonc
-{ "type": "chat.reply", "who": "CMO", "text": "On it — I'll brief the right agents.", "ts": "..." }
-```
-
-**3. `run.state`** — fired whenever `runs.state` changes, so the client doesn't have to infer it from individual events:
-```jsonc
-{ "type": "run.state", "state": "stopped", "current_phase_id": null }
-```
+Chat turns (`chat.message`, `chat.reply`) and run-state transitions (`run.state_changed`) are ordinary events inside this envelope, there is no separate top-level frame type for them.
 
 ### Event `type` values that appear inside outbound `event` frames
 
@@ -290,13 +290,14 @@ Reused verbatim from `ARCHITECTURE.md` §4.3, with a note on what this dummy-age
 | Plan | `plan.proposed`, `plan.edited`, `plan.approved`, `plan.rejected`, `plan.revised` | CMO planner (real Claude call) |
 | Phase | `phase.started`, `phase.completed`, `phase.skipped`, `phase.failed` | orchestrator |
 | Scope | `scope.spawned`, `scope.summarised`, `scope.completed`, `scope.failed` | agent process (`BaseAgent`) |
-| Step | `step.started`, `step.completed`, `step.failed`, `step.retrying` | agent process — dummy steps only, `step.failed`/`step.retrying` not exercised by the dummy agents in this pass (no fixture-failure-injector yet) |
+| Step | `step.started`, `step.completed`, `step.failed`, `step.retrying` | agent process, dummy steps only, `step.failed`/`step.retrying` not exercised by the dummy agents in this pass (no fixture-failure-injector yet) |
 | Finding | `finding.recorded` | agent process, for a step whose `significance` is `finding` |
 | Artifact | `artifact.created`, `artifact.updated` | agent process, for canned deliverables |
+| Usage | `usage.recorded` | CMO planner (real API-reported usage, `simulated: false`) and agent processes (synthetic, `simulated: true`, dummy agents make no LLM call; see MEMO.md) |
 | Approval | `approval.requested`, `approval.edited`, `approval.granted`, `approval.denied` | orchestrator / REST handlers |
 | Message | `message.queued`, `message.cancelled`, `message.delivered` | REST handlers / orchestrator (delivery at phase boundary) |
 | Control | `stop.requested`, `checkpoint.written`, `summary.generated`, `resume.requested` | orchestrator + CMO (real Claude call for the summary) |
-| Health | `model.degraded`, `model.recovered` | CMO planner only — dummy agents have no model calls to degrade |
+| Health | `model.degraded`, `model.recovered` | CMO planner only, dummy agents have no model calls to degrade |
 
 ---
 
@@ -305,4 +306,4 @@ Reused verbatim from `ARCHITECTURE.md` §4.3, with a note on what this dummy-age
 - No signed-token verification on `/bootstrap` (see `docs/DB_SCHEMA.md`).
 - No pagination cursor on `GET /runs/{id}/events` beyond `since` (fine at skeleton event volumes).
 - No rate limiting on any endpoint.
-- The fixture failure-injector (`ARCHITECTURE.md` §8) that would exercise `step.failed`/`model.degraded` on purpose is not built this pass — dummy agents always succeed.
+- The fixture failure-injector (`ARCHITECTURE.md` §8) that would exercise `step.failed`/`model.degraded` on purpose is not built this pass, dummy agents always succeed.

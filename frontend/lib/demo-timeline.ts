@@ -12,7 +12,7 @@ export const CMD =
   "we are launching a new feature this week, create a marketing campaign for it";
 
 export const PLAN =
-  "Read the changelog, PRD and your last two launches. Campaign plan: launch landing page + docs SEO, a 6-post X thread, 4 LinkedIn posts, and 3 Reddit threads in the communities that shipped you traffic last time. Going live now — nothing publishes without your approval.";
+  "Read the changelog, PRD and your last two launches. Campaign plan: launch landing page + docs SEO, a 6-post X thread, 4 LinkedIn posts, and 3 Reddit threads in the communities that shipped you traffic last time. Going live now, nothing publishes without your approval.";
 
 /** Timer interval, in ms, between frames. */
 export const TICK_MS = 95;
@@ -122,7 +122,7 @@ const BEATS = [
   },
   {
     num: "04",
-    label: "Stop one — it reports what it did",
+    label: "Stop one, it reports what it did",
     from: T_STOP,
     to: T_RESUME,
   },
@@ -141,7 +141,7 @@ export type AgentCardState = {
   glyph: string;
   task: string;
   status: AgentStatus;
-  /** 0 before the agent spins up, 1 after — drives the enter transition. */
+  /** 0 before the agent spins up, 1 after, drives the enter transition. */
   opacity: number;
   transform: string;
   borderColor: string;
@@ -217,7 +217,7 @@ export function computeFrame(f: number): Frame {
   if (f >= T_STOP + 4) {
     messages.push({
       who: "CMO · now",
-      text: "SEO agent stopped on your command. Launch page draft saved at checkpoint 3 of 5 — nothing published.",
+      text: "SEO agent stopped on your command. Launch page draft saved at checkpoint 3 of 5, nothing published.",
     });
   }
   if (f >= T_RESUME + 4) {

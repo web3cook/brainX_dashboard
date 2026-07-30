@@ -1,4 +1,4 @@
-"""Request/response models for the REST surface — matches docs/API.md."""
+"""Request/response models for the REST surface, matches docs/API.md."""
 
 import uuid
 from datetime import datetime

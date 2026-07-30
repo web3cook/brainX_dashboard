@@ -36,7 +36,7 @@
     monospace;
 }
 
-/* Declared at top level (not in @theme) so they are always emitted — the design
+/* Declared at top level (not in @theme) so they are always emitted, the design
    reuses each keyframe at several durations via arbitrary animation utilities. */
 @keyframes blink {
   0%,

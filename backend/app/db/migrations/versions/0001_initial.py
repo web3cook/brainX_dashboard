@@ -1,4 +1,4 @@
-"""initial schema — matches docs/DB_SCHEMA.md exactly
+"""initial schema, matches docs/DB_SCHEMA.md exactly
 
 Revision ID: 0001
 Revises:

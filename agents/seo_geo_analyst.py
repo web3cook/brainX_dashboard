@@ -1,4 +1,4 @@
-"""SEO/GEO Analyst — dummy stand-in for `seo.*` / `geo.*`.
+"""SEO/GEO Analyst, dummy stand-in for `seo.*` / `geo.*`.
 
 Real version (not built this pass): keyword gaps, SERP position, LLM-citation
 coverage in ChatGPT/AI Overviews.

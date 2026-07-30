@@ -1,6 +1,6 @@
 """Shared FastAPI dependencies.
 
-No real auth bridge in this pass (see docs/DB_SCHEMA.md's explicit note) —
+No real auth bridge in this pass (see docs/DB_SCHEMA.md's explicit note),
 the frontend sends the signed-in user's email as a header, and this
 dependency finds-or-trusts it. Only endpoints that list/create runs need the
 user; run-scoped endpoints (stop, resume, approvals, ...) operate on the run
@@ -24,5 +24,5 @@ async def get_current_user(
         await session.execute(select(User).where(User.email == x_user_email))
     ).scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="unknown user — call /bootstrap first")
+        raise HTTPException(status_code=404, detail="unknown user, call /bootstrap first")
     return user

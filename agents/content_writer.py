@@ -1,4 +1,4 @@
-"""Content Writer — dummy stand-in for `content.*`.
+"""Content Writer, dummy stand-in for `content.*`.
 
 Real version (not built this pass): drafts SEO-optimised articles anchored
 on the keyword/citation gaps the SEO/GEO Analyst finds.
@@ -27,13 +27,13 @@ class ContentWriterAgent(BaseAgent):
                 payload={"target": "draft_1"},
             ),
             StepDef(
-                label="Draft 1 complete — 1,240 words, targets \"typed api client\"",
+                label="Draft 1 complete, 1,240 words, targets \"typed api client\"",
                 kind="write",
                 significance="milestone",
                 payload={"draft": 1, "words": 1240},
             ),
             StepDef(
-                label="Draft 2 complete — 1,510 words, targets a long-tail variant",
+                label="Draft 2 complete, 1,510 words, targets a long-tail variant",
                 kind="write",
                 significance="milestone",
                 payload={"draft": 2, "words": 1510},
@@ -57,11 +57,11 @@ class ContentWriterAgent(BaseAgent):
         return [
             ArtifactDef(
                 kind="post_draft",
-                title="Draft — Why typed API clients matter more in 2026",
+                title="Draft, Why typed API clients matter more in 2026",
                 format="markdown",
                 content=(
                     "# Why typed API clients matter more in 2026\n\n"
-                    "*(draft 1 of 2 — 1,240 words, brand voice, SEO-targeted)*\n\n"
+                    "*(draft 1 of 2, 1,240 words, brand voice, SEO-targeted)*\n\n"
                     "Teams shipping against a fast-moving API spend more time debugging "
                     "shape mismatches than writing features. A typed client turns that "
                     "class of bug into a compile-time error...\n"

@@ -34,8 +34,12 @@ export function DashboardApp({
   const [state, dispatch] = useReducer(reducer, initialState);
   const [bootError, setBootError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
-  const { connected, events, sendChat } = useRunSocket(state.runId);
-  const appliedCount = useRef(0);
+  const { connected, events, epoch, sendChat } = useRunSocket(state.runId);
+  // Cursor into the socket's event buffer. `epoch` changes whenever that
+  // buffer is cleared for a different run, and the cursor must rewind with
+  // it, otherwise opening a past run after a longer one silently applies
+  // nothing (the loop below never runs) and the panel renders empty.
+  const applied = useRef({ epoch: 0, count: 0 });
   const thinkingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearThinkingTimeout = useCallback(() => {
@@ -64,9 +68,8 @@ export function DashboardApp({
   // creates the user, then resumes whatever run is still in flight so a
   // refresh doesn't lose the thread. The WebSocket only opens once runId is
   // set, and its own backfill (since=0) is what actually repopulates plan,
-  // run cards, and chat — bootstrap itself only decides *which* run to open.
+  // run cards, and chat, bootstrap itself only decides *which* run to open.
   useEffect(() => {
-    appliedCount.current = 0;
     let cancelled = false;
     (async () => {
       try {
@@ -76,7 +79,7 @@ export function DashboardApp({
         const active = res.runs.find((r) => NON_TERMINAL_ORDER.includes(r.state));
          
         console.info(
-          `[dashboard] bootstrap: ${res.runs.length} run(s), resuming ${active ? `${active.id} (${active.state})` : "none — showing composer"}`,
+          `[dashboard] bootstrap: ${res.runs.length} run(s), resuming ${active ? `${active.id} (${active.state})` : "none, showing composer"}`,
         );
         if (active) {
           dispatch({ type: "initRun", runId: active.id, runState: active.state, plan: null });
@@ -95,15 +98,16 @@ export function DashboardApp({
 
   // Fold every new backfilled/live event into state exactly once each.
   useEffect(() => {
-    for (; appliedCount.current < events.length; appliedCount.current++) {
-      const event = events[appliedCount.current];
+    if (applied.current.epoch !== epoch) applied.current = { epoch, count: 0 };
+    for (; applied.current.count < events.length; applied.current.count++) {
+      const event = events[applied.current.count];
       dispatch({ type: "applyEvent", event });
       if (event.type === "chat.reply") {
         setThinking(false);
         clearThinkingTimeout();
       }
     }
-  }, [events, clearThinkingTimeout]);
+  }, [events, epoch, clearThinkingTimeout]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -132,7 +136,7 @@ export function DashboardApp({
          
         console.info(`[dashboard] run created: ${res.run.id} state=${res.run.state}`);
         dispatch({ type: "initRun", runId: res.run.id, runState: res.run.state, plan: null });
-        // pastRuns is only fetched once at bootstrap — without this, a run
+        // pastRuns is only fetched once at bootstrap, without this, a run
         // started mid-session wouldn't show up under "past runs" to click
         // back into until the next full reload.
         dispatch({
@@ -160,13 +164,13 @@ export function DashboardApp({
       dispatch({ type: "dismissAction", index });
       if (!state.runId || !state.plan || !state.planSelection || state.planSelection.size === 0) return;
       if (approvingRef.current) {
-        console.warn(`[dashboard] approve-plan click ignored — already in flight for run=${state.runId}`);
+        console.warn(`[dashboard] approve-plan click ignored, already in flight for run=${state.runId}`);
         return;
       }
       approvingRef.current = true;
 
       // Only send edited_plan when the operator actually deselected
-      // something — sending it unconditionally would fire a redundant
+      // something, sending it unconditionally would fire a redundant
       // plan.edited event server-side even when nothing changed.
       const allSelected = state.planSelection.size === state.plan.phases.length;
       const editedPlan: Plan | undefined = allSelected
@@ -175,17 +179,17 @@ export function DashboardApp({
 
       console.info(
         `[dashboard] approving plan for run=${state.runId}` +
-          (editedPlan ? ` — ${editedPlan.phases.length}/${state.plan.phases.length} phases selected` : " — full plan"),
+          (editedPlan ? `, ${editedPlan.phases.length}/${state.plan.phases.length} phases selected` : ", full plan"),
       );
       api
         .approvePlan(state.runId, editedPlan)
         .catch((err) => {
-          // A 409 here means the plan already moved past awaiting-approval —
+          // A 409 here means the plan already moved past awaiting-approval,
           // e.g. a second click landed after the first one succeeded, or
           // `just_run` autonomy auto-approved it already. Nothing is actually
           // wrong, so don't scare the operator with an error for it.
           if (err instanceof ApiError && err.status === 409) return;
-          dispatch({ type: "say", who: "SYSTEM · now", text: "Couldn't approve the plan — try again." });
+          dispatch({ type: "say", who: "SYSTEM · now", text: "Couldn't approve the plan, try again." });
         })
         .finally(() => {
           approvingRef.current = false;
@@ -200,9 +204,9 @@ export function DashboardApp({
     console.info(`[dashboard] stopping run=${state.runId}`);
     api.stopRun(state.runId).catch((err) => {
       // A 409 means it already isn't "running" (e.g. a second click landed
-      // after the first stop already took effect) — not a real failure.
+      // after the first stop already took effect), not a real failure.
       if (err instanceof ApiError && err.status === 409) return;
-      dispatch({ type: "say", who: "SYSTEM · now", text: "Couldn't stop the run — try again." });
+      dispatch({ type: "say", who: "SYSTEM · now", text: "Couldn't stop the run, try again." });
     });
   }, [state.runId]);
 
@@ -212,7 +216,7 @@ export function DashboardApp({
     console.info(`[dashboard] resuming run=${state.runId}`);
     api.resumeRun(state.runId).catch((err) => {
       if (err instanceof ApiError && err.status === 409) return;
-      dispatch({ type: "say", who: "SYSTEM · now", text: "Couldn't resume the run — try again." });
+      dispatch({ type: "say", who: "SYSTEM · now", text: "Couldn't resume the run, try again." });
     });
   }, [state.runId]);
 
@@ -273,6 +277,7 @@ export function DashboardApp({
         user={user}
         runState={state.runState}
         connected={connected}
+        usage={state.usage}
         onStopRun={stopRun}
         onResumeRun={resumeRun}
         onNewRun={newRun}

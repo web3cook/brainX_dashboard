@@ -1,5 +1,5 @@
 /** Wire types mirroring backend/app/schemas.py and lib/planner/schemas.py.
- * Kept hand-written (no codegen) since the backend is Python — this is the
+ * Kept hand-written (no codegen) since the backend is Python, this is the
  * one place drift between the two can happen, so keep it in sync with
  * docs/API.md when either side changes.
  */
@@ -79,6 +79,23 @@ export type ArtifactOut = {
   format: string;
   version: number;
   created_at: string;
+};
+
+/** Payload of a `usage.recorded` event. `simulated` is load-bearing: the CMO
+ * planning call reports real API usage, the dummy subagents emit synthetic
+ * figures because they make no LLM call. The UI must keep the two visually
+ * distinct; see MEMO.md. */
+export type UsagePayload = {
+  source: "cmo_planner" | "agent";
+  agent_name: AgentName | null;
+  model: string;
+  simulated: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
 };
 
 export type LedgerRow = {

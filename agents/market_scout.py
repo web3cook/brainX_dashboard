@@ -1,4 +1,4 @@
-"""Market Scout — dummy stand-in for `research.*`.
+"""Market Scout, dummy stand-in for `research.*`.
 
 Real version (not built this pass): competitor and market research, positioning
 gaps. This version returns canned findings with sampled latency so the
@@ -60,7 +60,7 @@ class MarketScoutAgent(BaseAgent):
         return [
             ArtifactDef(
                 kind="strategy_doc",
-                title="Competitor positioning gap — mid-market compliance",
+                title="Competitor positioning gap, mid-market compliance",
                 format="markdown",
                 content=(
                     "# Positioning gap analysis\n\n"

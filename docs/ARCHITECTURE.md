@@ -1,4 +1,4 @@
-# HLD — brainX harness architecture
+# HLD, brainX harness architecture
 
 **Status:** v0.1
 **Companion to:** `docs/PRD.md`
@@ -18,7 +18,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Browser — Next.js 16 (App Router, React 19, Tailwind v4)   │
+│  Browser, Next.js 16 (App Router, React 19, Tailwind v4)   │
 │                                                              │
 │  RunView          Timeline projector    Deliverables panel   │
 │  Composer         Approval tray         Autonomy control     │
@@ -27,7 +27,7 @@
             │                              │ (chat + live events,
             ▼                              ▼  one socket per open run)
 ┌─────────────────────────────────────────────────────────────┐
-│  FastAPI — Harness API                                      │
+│  FastAPI, Harness API                                      │
 │  ┌──────────────┬──────────────┬───────────────────────┐    │
 │  │ Run Control  │ Event Bus    │ Approval Service      │    │
 │  └──────────────┴──────────────┴───────────────────────┘    │
@@ -53,17 +53,17 @@
 └───────────────────────────┘
 ```
 
-See `docs/DB_SCHEMA.md` for the complete table DDL and `docs/API.md` for the full REST + WebSocket contract — both superseded the sketches originally inlined in §5 and §7 below, which now just summarize and link out.
+See `docs/DB_SCHEMA.md` for the complete table DDL and `docs/API.md` for the full REST + WebSocket contract, both superseded the sketches originally inlined in §5 and §7 below, which now just summarize and link out.
 
 **Stack decisions:**
 
 | Layer | Choice | Rationale |
 |---|---|---|
 | Frontend | Next.js 16 + React 19 + Tailwind v4 | Already scaffolded in repo. |
-| Backend | Python 3.12 + FastAPI + asyncio | Best agent ecosystem; native async fits concurrent subagents and subprocess supervision. Runs inside Docker (host only has Python 3.9) — see §12. |
+| Backend | Python 3.12 + FastAPI + asyncio | Best agent ecosystem; native async fits concurrent subagents and subprocess supervision. Runs inside Docker (host only has Python 3.9); see §12. |
 | DB | Postgres 16 + SQLAlchemy (async) + Alembic | Durable run state. `JSONB` for event payloads. `LISTEN/NOTIFY` for cross-process event fanout. |
 | Transport | REST (bootstrap + commands) + one WebSocket per run | Chat is bidirectional, so a unidirectional stream (the original SSE plan) no longer fits once chat and the event stream share a connection. The WebSocket carries chat + live events; every command that must survive a flaky connection or needs a real HTTP response (stop, approve, resume, queue/cancel a message, grant/deny an approval) stays REST. Full contract in `docs/API.md`. |
-| Runner | Orchestrator asyncio tasks, each spawning a real OS subprocess per subagent invocation | Subagents are interruptible via `SIGINT`, not just an in-process cancellation token — this is what lets a stopped agent checkpoint itself and exit cleanly (§6.2). Boundary is drawn so a queue (Celery/Arq) could still slot in later without touching the API. |
+| Runner | Orchestrator asyncio tasks, each spawning a real OS subprocess per subagent invocation | Subagents are interruptible via `SIGINT`, not just an in-process cancellation token, this is what lets a stopped agent checkpoint itself and exit cleanly (§6.2). Boundary is drawn so a queue (Celery/Arq) could still slot in later without touching the API. |
 
 ---
 
@@ -131,9 +131,9 @@ Plan(
 
 This buys three things at once:
 
-- **Progress estimation** — "phase 3 of 5" is real, not fabricated from a token count.
-- **Editable approval** — the operator edits a structured object, not a paragraph.
-- **Resume granularity** — a checkpoint is "phases 1–2 complete, phase 3 partial", which is exactly what the operator needs told.
+- **Progress estimation**, "phase 3 of 5" is real, not fabricated from a token count.
+- **Editable approval**, the operator edits a structured object, not a paragraph.
+- **Resume granularity**, a checkpoint is "phases 1 to 2 complete, phase 3 partial", which is exactly what the operator needs told.
 
 ---
 
@@ -158,7 +158,7 @@ One structure serves: live streaming, tab-close reconnect, resume-after-stop, po
 }
 ```
 
-`scope_id` / `parent_scope_id` is the entire subagent nesting mechanism. The frontend builds a tree by grouping on scope, never by guessing from tool names. Interleaved arrival is fine — the tree structure is carried in the data, so two concurrent subagents render as two coherent cards without any reordering logic in the client (PRD R1.3).
+`scope_id` / `parent_scope_id` is the entire subagent nesting mechanism. The frontend builds a tree by grouping on scope, never by guessing from tool names. Interleaved arrival is fine, the tree structure is carried in the data, so two concurrent subagents render as two coherent cards without any reordering logic in the client (PRD R1.3).
 
 ### 4.3 Event types
 
@@ -190,20 +190,20 @@ One structure serves: live streaming, tab-close reconnect, resume-after-stop, po
 }
 ```
 
-The tool registry declares `label_template`, `kind`, and `significance` per tool. The renderer stays dumb; adding a tool never requires a frontend change (Principle 3). `significance` drives PRD R1.6 — routine steps recede, findings stay.
+The tool registry declares `label_template`, `kind`, and `significance` per tool. The renderer stays dumb; adding a tool never requires a frontend change (Principle 3). `significance` drives PRD R1.6, routine steps recede, findings stay.
 
 ---
 
 ## 5. Data model (Postgres)
 
-Full DDL lives in `docs/DB_SCHEMA.md` — this section only summarizes what changed from the original sketch and why.
+Full DDL lives in `docs/DB_SCHEMA.md`, this section only summarizes what changed from the original sketch and why.
 
 Nine tables: `users`, `runs`, `run_events`, `scopes`, `checkpoints`, `artifacts`, `approvals`, `queued_messages`, `tool_ledger`. Two additions beyond the original design:
 
-- **`users`** — didn't exist originally; `runs.user_id` had nothing to reference. Found-or-created by email on `POST /bootstrap`, with **no signed-token verification** between the Next.js session and this backend in this build pass. Acceptable for a single-operator local demo; called out explicitly so it isn't mistaken for an oversight later.
-- **`scopes` gains `task_brief jsonb`, `checkpoint_path text`, `checkpoint_state text`, `pid integer`** — the process-based agent model (§6.2) needs somewhere for an agent to read its own instructions at spawn (`task_brief`) and somewhere to point at the state file it writes on `SIGINT` (`checkpoint_path`/`checkpoint_state`). `pid` supports a best-effort orphan-reconciliation check on API startup.
+- **`users`**, didn't exist originally; `runs.user_id` had nothing to reference. Found-or-created by email on `POST /bootstrap`, with **no signed-token verification** between the Next.js session and this backend in this build pass. Acceptable for a single-operator local demo; called out explicitly so it isn't mistaken for an oversight later.
+- **`scopes` gains `task_brief jsonb`, `checkpoint_path text`, `checkpoint_state text`, `pid integer`**, the process-based agent model (§6.2) needs somewhere for an agent to read its own instructions at spawn (`task_brief`) and somewhere to point at the state file it writes on `SIGINT` (`checkpoint_path`/`checkpoint_state`). `pid` supports a best-effort orphan-reconciliation check on API startup.
 
-State columns (`runs.state`, `scopes.state`, `checkpoint_state`, etc.) are `text` + `CHECK`, not native Postgres `ENUM` — easier to extend with a plain migration while this is still moving.
+State columns (`runs.state`, `scopes.state`, `checkpoint_state`, etc.) are `text` + `CHECK`, not native Postgres `ENUM`, easier to extend with a plain migration while this is still moving.
 
 ---
 
@@ -214,28 +214,28 @@ State columns (`runs.state`, `scopes.state`, `checkpoint_state`, etc.) are `text
 ```
 RunSupervisor (one asyncio Task per run, in-process)
   ├ owns the run's root CancellationToken (for the CMO's own in-process work:
-  │   planning calls, phase sequencing — see §6.2a)
+  │   planning calls, phase sequencing; see §6.2a)
   ├ drives the phase sequence from the approved plan
   ├ checkpoints at every phase boundary
   └ for each phase, per assigned subagent:
         AgentProcess ── asyncio.create_subprocess_exec ──▶ real OS process
           (python -m agents.runner --scope-id <uuid> --run-id <uuid>)
-          · reads its own task_brief from its `scopes` row at startup — no
+          · reads its own task_brief from its `scopes` row at startup, no
             history passed in-band; the brief itself is the only context
           · owns its own asyncpg connection (separate from the API's pool)
           · appends its own step.*/finding.* events directly to run_events
           · interruptible via SIGINT, not a shared in-process token (§6.2b)
 ```
 
-This replaced the original in-process `AgentFrame(subagent)` design: subagents are now real child processes with their own PID, not nested async calls sharing the orchestrator's memory space. The reasons a subagent still only receives a task brief (never the parent's full history) are unchanged from the original design — it keeps the process's own working set small, and it's still *why* the UI can collapse it to one line honestly: that line is the agent's actual return value, not a UI-side summarisation.
+This replaced the original in-process `AgentFrame(subagent)` design: subagents are now real child processes with their own PID, not nested async calls sharing the orchestrator's memory space. The reasons a subagent still only receives a task brief (never the parent's full history) are unchanged from the original design, it keeps the process's own working set small, and it's still *why* the UI can collapse it to one line honestly: that line is the agent's actual return value, not a UI-side summarisation.
 
-**Concurrency:** phases with no `depends_on` relationship run concurrently, bounded by a semaphore (default 3) — now a cap on *simultaneous OS processes*, not just async tasks. This is what produces the two-cards-updating-side-by-side moment in the demo, and it also bounds the direct-Postgres-connection count from §6.2b to a small, known number.
+**Concurrency:** phases with no `depends_on` relationship run concurrently, bounded by a semaphore (default 3), now a cap on *simultaneous OS processes*, not just async tasks. This is what produces the two-cards-updating-side-by-side moment in the demo, and it also bounds the direct-Postgres-connection count from §6.2b to a small, known number.
 
 **Accepted risk, stated plainly:** if the `api` container restarts while subagent processes are its children, those children are reparented (orphaned) rather than cleanly torn down. Mitigation for this build: on API startup, any `scopes` row left `spawned`/`running` with no matching live PID is marked `orphaned`; more substantively, restarting the whole `api` container (not just the API process inside it) kills the entire process group, so container lifecycle is standing in for a real process supervisor (Celery/Arq) in this POC.
 
-### 6.2 Cancellation — two mechanisms, one per execution model
+### 6.2 Cancellation, two mechanisms, one per execution model
 
-**(a) Tool-call-boundary token cancellation** — unchanged from the original design, and still what governs the CMO orchestrator's own in-process work (the planning call, phase sequencing):
+**(a) Tool-call-boundary token cancellation**, unchanged from the original design, and still what governs the CMO orchestrator's own in-process work (the planning call, phase sequencing):
 
 ```python
 async def run_tool(self, call, token):
@@ -246,12 +246,12 @@ async def run_tool(self, call, token):
     return result
 ```
 
-**(b) Process-boundary SIGINT cancellation** — new, and what governs a running subagent process:
+**(b) Process-boundary SIGINT cancellation**, new, and what governs a running subagent process:
 
 ```python
 # inside agents/runner.py, at process startup
 stop_event = asyncio.Event()
-loop.add_signal_handler(signal.SIGINT, stop_event.set)   # not raw signal.signal —
+loop.add_signal_handler(signal.SIGINT, stop_event.set)   # not raw signal.signal,
                                                           # a raw handler can't safely
                                                           # await, which is exactly the
                                                           # "poll a flag" trap this avoids
@@ -263,11 +263,11 @@ for step in self.canned_steps():
     await self.step(...)
 ```
 
-The orchestrator sends `SIGINT` (never `terminate()`/`SIGKILL` on the happy path — a grace-timeout fallback to `SIGKILL` exists only if a process doesn't exit within a few seconds). This is the direct realization of "stop must checkpoint before it exits": the check-between-steps loop above plays exactly the role `token.raise_if_cancelled()` plays in (a), just at process granularity instead of task granularity — the two mechanisms are the same *principle* (check at known boundaries, never kill mid-step) applied to two different concurrency primitives.
+The orchestrator sends `SIGINT` (never `terminate()`/`SIGKILL` on the happy path, a grace-timeout fallback to `SIGKILL` exists only if a process doesn't exit within a few seconds). This is the direct realization of "stop must checkpoint before it exits": the check-between-steps loop above plays exactly the role `token.raise_if_cancelled()` plays in (a), just at process granularity instead of task granularity, the two mechanisms are the same *principle* (check at known boundaries, never kill mid-step) applied to two different concurrency primitives.
 
-An in-flight step is allowed to finish before the check runs (steps are bounded, same as tool calls in (a)). If a stop lands mid-step, the UI shows "Finishing one last lookup, then stopping" — satisfying the PRD R2.6 latency budget honestly rather than lying about instant cancellation.
+An in-flight step is allowed to finish before the check runs (steps are bounded, same as tool calls in (a)). If a stop lands mid-step, the UI shows "Finishing one last lookup, then stopping", satisfying the PRD R2.6 latency budget honestly rather than lying about instant cancellation.
 
-Cancellation still propagates parent → child: the orchestrator sends SIGINT to every live subagent process for a run being stopped. Each one gets its `on_interrupt()` call — the process equivalent of "one final chance to emit `scope.summarised` with partial findings" — before exiting, so a stopped run still yields usable work.
+Cancellation still propagates parent → child: the orchestrator sends SIGINT to every live subagent process for a run being stopped. Each one gets its `on_interrupt()` call, the process equivalent of "one final chance to emit `scope.summarised` with partial findings", before exiting, so a stopped run still yields usable work.
 
 ### 6.3 Stop → summary → resume
 
@@ -294,19 +294,19 @@ POST /runs/{id}/resume  { redirect: "Skip Reddit, go deeper on LinkedIn ICP" }
 1. Load latest checkpoint
 2. Re-plan: CMO receives (original brief + checkpoint findings + redirect)
    and produces a revised plan, explicitly marking each phase:
-       KEEP     — already done, findings still valid, will not re-run
-       DISCARD  — invalidated by the redirect
-       REVISED  — carried forward with changed instructions
-       NEW      — added because of the redirect
+       KEEP    , already done, findings still valid, will not re-run
+       DISCARD , invalidated by the redirect
+       REVISED , carried forward with changed instructions
+       NEW     , added because of the redirect
 3. Emit plan.revised. UI shows the keep/discard diff.
 4. Operator approves. state → RUNNING, resuming at the first non-KEEP phase.
 ```
 
-That KEEP/DISCARD marking is the concrete answer to "redirect without throwing away what it has already done" — the operator can *see* the work being preserved, rather than being told it was.
+That KEEP/DISCARD marking is the concrete answer to "redirect without throwing away what it has already done", the operator can *see* the work being preserved, rather than being told it was.
 
 ### 6.4 Queued message delivery
 
-Messages are injected at phase boundaries, never mid-phase. Rationale: mid-phase injection corrupts subagent context and produces incoherent behaviour, which reads to the operator as the agent ignoring them. Delivering at a clean boundary means the message *visibly* changes the next phase — better feedback, less magic. The UI states the contract plainly: "Will be read when the current phase finishes."
+Messages are injected at phase boundaries, never mid-phase. Rationale: mid-phase injection corrupts subagent context and produces incoherent behaviour, which reads to the operator as the agent ignoring them. Delivering at a clean boundary means the message *visibly* changes the next phase, better feedback, less magic. The UI states the contract plainly: "Will be read when the current phase finishes."
 
 If a queued message would substantially change the plan, the CMO re-plans and re-requests approval (unless mode is `just_run`).
 
@@ -316,11 +316,11 @@ If a queued message would substantially change the plan, the CMO re-plans and re
 
 Full endpoint-by-endpoint request/response contract lives in `docs/API.md`. Summary:
 
-- **`POST /bootstrap`** — the first-visit REST call. Finds-or-creates the operator's `users` row by email, returns their run list, renders the dashboard shell before any socket exists.
-- **REST commands** — `/runs` (create/list/detail/events-backfill), plan approve/reject, `/runs/{id}/stop` (dedicated endpoint, deliberately **never** accepted over the WebSocket — see below), `/runs/{id}/resume`, queue/cancel a message, `PATCH .../autonomy`, approvals grant/deny, artifacts list/download, the read/write/publish ledger.
-- **`GET /runs/{id}/live`** — the one **WebSocket**, opened after bootstrap. Replaces the original SSE design because chat is inherently bidirectional: this single socket carries the live event stream *and* chat outbound, and accepts `chat.message` inbound. Handshake takes `?since={seq}`, backfills via the same `run_events WHERE seq > $1` query the original SSE reconnect used, then tails live. Every other inbound action (stop, approve, resume, queue) is deliberately REST, not a WS frame — those need a real HTTP response to be trustworthy over a flaky connection, which a fire-and-forget socket message doesn't give you.
+- **`POST /bootstrap`**, the first-visit REST call. Finds-or-creates the operator's `users` row by email, returns their run list, renders the dashboard shell before any socket exists.
+- **REST commands**, `/runs` (create/list/detail/events-backfill), plan approve/reject, `/runs/{id}/stop` (dedicated endpoint, deliberately **never** accepted over the WebSocket; see below), `/runs/{id}/resume`, queue/cancel a message, `PATCH .../autonomy`, approvals grant/deny, artifacts list/download, the read/write/publish ledger.
+- **`GET /runs/{id}/live`**, the one **WebSocket**, opened after bootstrap. Replaces the original SSE design because chat is inherently bidirectional: this single socket carries the live event stream *and* chat outbound, and accepts `chat.message` inbound. Handshake takes `?since={seq}`, backfills via the same `run_events WHERE seq > $1` query the original SSE reconnect used, then tails live. Every other inbound action (stop, approve, resume, queue) is deliberately REST, not a WS frame, those need a real HTTP response to be trustworthy over a flaky connection, which a fire-and-forget socket message doesn't give you.
 
-**Cross-process fanout:** unchanged — Postgres `LISTEN/NOTIFY` on `run_events_channel`. Works with multiple API workers without adding Redis, and works identically whether the frontend is listening over WebSocket or polling the backfill endpoint directly.
+**Cross-process fanout:** unchanged, Postgres `LISTEN/NOTIFY` on `run_events_channel`. Works with multiple API workers without adding Redis, and works identically whether the frontend is listening over WebSocket or polling the backfill endpoint directly.
 
 ---
 
@@ -343,8 +343,8 @@ The decorator is what keeps the frontend dumb: `label`, `kind`, and `significanc
 **Fixture layer.** Every external call goes through `FixtureBackend`, which:
 
 - Returns realistic canned data keyed by argument shape
-- Simulates latency (300–2500ms, sampled) so the timeline animates like real work
-- Honours a **failure injector** (`FAILURE_MODE=tool_fail:reddit.find_threads`) — this is how the demo breaks things on purpose, deterministically, on camera
+- Simulates latency (300 to 2500ms, sampled) so the timeline animates like real work
+- Honours a **failure injector** (`FAILURE_MODE=tool_fail:reddit.find_threads`), this is how the demo breaks things on purpose, deterministically, on camera
 
 Every fixture-backed namespace is listed in `MEMO.md`. The agent loop, tool dispatch, subagent spawning, cancellation, and checkpointing are all real.
 
@@ -378,10 +378,10 @@ app/runs/[id]/page.tsx
 The dashboard predates this backend design (built from a Figma-style import) and has a flat run-cards-plus-tabs shape rather than the `app/runs/[id]` Phase/Scope/Step tree above. Rather than a UI redesign in the same pass as standing up the backend, this build keeps that existing shape and drives it from real data:
 
 - `lib/api/useRunSocket.ts` replaces the mocked `setInterval` tick loop with the real WebSocket above.
-- `lib/dashboard/state.ts`'s reducer gains an `applyEvent(event)` action that folds one real `run_events` row into the existing flat `Run` shape — a `Run` here is closest to a **Scope**, not a Phase; there is no phase-level grouping yet.
+- `lib/dashboard/state.ts`'s reducer gains an `applyEvent(event)` action that folds one real `run_events` row into the existing flat `Run` shape, a `Run` here is closest to a **Scope**, not a Phase; there is no phase-level grouping yet.
 - Two small additions land **on top of the existing shape**, reusing components that already exist rather than building new ones: a plan-approval moment (the chat's existing action-card component, `ChatAction`/`confirmChatAction`) and a 3-option autonomy selector at brief-submission time.
 
-**Explicitly deferred** (the backend emits the underlying events; no UI renders them in the target shape yet): the collapsible Phase→Task→Step timeline, the non-blocking `ApprovalTray` with badge count, `DeliverablesPanel`, the ledger view, and mid-run autonomy changes. This gap is intentional and named, not an oversight — see `docs/API.md` for the event types that already exist server-side, ready for that UI whenever it's built.
+**Explicitly deferred** (the backend emits the underlying events; no UI renders them in the target shape yet): the collapsible Phase→Task→Step timeline, the non-blocking `ApprovalTray` with badge count, `DeliverablesPanel`, the ledger view, and mid-run autonomy changes. This gap is intentional and named, not an oversight; see `docs/API.md` for the event types that already exist server-side, ready for that UI whenever it's built.
 
 ---
 
@@ -389,25 +389,25 @@ The dashboard predates this backend design (built from a Figma-style import) and
 
 | Risk | Mitigation |
 |---|---|
-| LLM produces a vague plan → phase progress becomes meaningless | Constrain planning to a structured schema; validate phase count 3–7; retry the planning call on schema failure |
+| LLM produces a vague plan → phase progress becomes meaningless | Constrain planning to a structured schema; validate phase count 3 to 7; retry the planning call on schema failure |
 | Concurrent subagents make the timeline illegible | Cap at 3; test legibility at 2/3/5 before locking the default |
-| Stop summary generation adds latency at the worst moment | Emit checkpoint *before* summary; UI shows "Stopped — writing up what I found" with the structured checkpoint already visible |
+| Stop summary generation adds latency at the worst moment | Emit checkpoint *before* summary; UI shows "Stopped, writing up what I found" with the structured checkpoint already visible |
 | Resume re-plan discards work it should have kept | Make KEEP/DISCARD explicit and operator-approvable rather than automatic |
 | Event volume degrades the browser | Virtualisation + rAF batching; server-side cap on `step` events per scope |
 
 ---
 
-## 11. Build sequence — this skeleton pass
+## 11. Build sequence, this skeleton pass
 
 Superseded by milestones, not days, since the toolchain/topology decisions (Docker-only Python 3.12, subprocess-based agents, dummy agent intelligence) reshape what's actually buildable first:
 
-1. **Spine** — Postgres schema + Alembic migration, `docker compose up` (db+api healthy), `POST /bootstrap` working.
-2. **One dummy agent, standalone** — `agents/base.py` + `agents/market_scout.py` + `agents/runner.py`, invoked directly via CLI and manually `kill -INT`'d, proving the full spawn → work → checkpoint-on-SIGINT → exit lifecycle in isolation.
-3. **CMO planner** — the one real Claude call; `POST /runs` returns a validated `Plan`; no execution yet.
-4. **Orchestrator wiring** — `RunSupervisor` spawns the dummy agent per approved phase; events flow; backfill via REST polling only, no socket yet.
-5. **WebSocket** — `/runs/{id}/live` replaces polling; backfill + live tail + inbound chat.
-6. **Stop → SIGINT → checkpoint end-to-end**, through the real `POST /runs/{id}/stop` — sequenced *after* the socket exists specifically so the demo can watch the stop happen live.
-7. **Remaining four dummy agents** — mechanical repeats of step 2's pattern.
-8. **Frontend wiring** — API client, `useRunSocket`, the `state.ts` reducer rewrite, the agent-roster remap, `DashboardApp.tsx` wiring, the plan-approval card, the autonomy selector.
+1. **Spine**, Postgres schema + Alembic migration, `docker compose up` (db+api healthy), `POST /bootstrap` working.
+2. **One dummy agent, standalone**, `agents/base.py` + `agents/market_scout.py` + `agents/runner.py`, invoked directly via CLI and manually `kill -INT`'d, proving the full spawn → work → checkpoint-on-SIGINT → exit lifecycle in isolation.
+3. **CMO planner**, the one real Claude call; `POST /runs` returns a validated `Plan`; no execution yet.
+4. **Orchestrator wiring**, `RunSupervisor` spawns the dummy agent per approved phase; events flow; backfill via REST polling only, no socket yet.
+5. **WebSocket**, `/runs/{id}/live` replaces polling; backfill + live tail + inbound chat.
+6. **Stop → SIGINT → checkpoint end-to-end**, through the real `POST /runs/{id}/stop`, sequenced *after* the socket exists specifically so the demo can watch the stop happen live.
+7. **Remaining four dummy agents**, mechanical repeats of step 2's pattern.
+8. **Frontend wiring**, API client, `useRunSocket`, the `state.ts` reducer rewrite, the agent-roster remap, `DashboardApp.tsx` wiring, the plan-approval card, the autonomy selector.
 
 Ship-order rule, unchanged from the original plan and still true here: **the stop/resume loop lands before approval polish.** It remains the differentiator and the thing any demo should be built around.

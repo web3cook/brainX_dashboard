@@ -1,4 +1,6 @@
 import type { RunState } from "@/lib/api/types";
+import type { UsageTotals } from "@/lib/dashboard/state";
+import { fmtTokens, usd } from "@/lib/dashboard/view";
 import type { DashboardUser } from "./DashboardApp";
 
 const STATE_LABEL: Record<RunState, string> = {
@@ -19,14 +21,18 @@ type Props = {
   user: DashboardUser;
   runState: RunState | null;
   connected: boolean;
+  usage: UsageTotals;
   onStopRun: () => void;
   onResumeRun: () => void;
   onNewRun: () => void;
 };
 
-export function TopBar({ user, runState, connected, onStopRun, onResumeRun, onNewRun }: Props) {
+export function TopBar({ user, runState, connected, usage, onStopRun, onResumeRun, onNewRun }: Props) {
   const canStop = runState !== null && ACTIVE_STATES.includes(runState);
   const canResume = runState === "stopped";
+  const totalTokens = usage.measured.totalTokens + usage.simulated.totalTokens;
+  const totalCost = usage.measured.costUsd + usage.simulated.costUsd;
+  const hasSimulated = usage.simulated.totalTokens > 0;
 
   return (
     <header className="border-line bg-topbar relative z-2 flex min-h-14 flex-none flex-wrap items-center gap-x-4 gap-y-2 border-b px-[18px] py-2 lg:flex-nowrap lg:py-0">
@@ -42,6 +48,27 @@ export function TopBar({ user, runState, connected, onStopRun, onResumeRun, onNe
             aria-hidden="true"
           />
           <span className="font-bold">{STATE_LABEL[runState]}</span>
+        </div>
+      )}
+
+      {totalTokens > 0 && (
+        <div
+          className="bg-chip border-edge hidden items-center gap-2 rounded-md border px-3 py-[7px] text-[11px] sm:flex"
+          title={
+            hasSimulated
+              ? "Subagents are dummy processes and make no LLM call, their token figures are simulated. Only the CMO's planning call is measured."
+              : "Measured from the Anthropic API's reported usage."
+          }
+        >
+          <span className="text-acid font-bold">{fmtTokens(totalTokens)} tok</span>
+          <span className="text-[#3a4a3a]">|</span>
+          <span className="text-[#b4b4b4]">{usd(totalCost)}</span>
+          {hasSimulated && (
+            <>
+              <span className="text-[#3a4a3a]">|</span>
+              <span className="text-[#8a7f5f] text-[9.5px] tracking-[.08em]">SIM</span>
+            </>
+          )}
         </div>
       )}
 

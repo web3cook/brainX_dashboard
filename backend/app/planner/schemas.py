@@ -1,4 +1,4 @@
-"""Plan/Phase shapes — the LLM-facing draft the model fills in, and the
+"""Plan/Phase shapes, the LLM-facing draft the model fills in, and the
 materialized Plan the orchestrator actually consumes. Kept as two models
 rather than one: the draft asks the model for only what it can reasonably
 supply (a title-based `depends_on`, no id, no status); the orchestrator then
@@ -32,7 +32,7 @@ class PhaseDraft(BaseModel):
     assigned_agent: AgentName
     expected_outputs: list[str]
     est_steps: int
-    # References earlier phases in this same plan **by title** — simpler for
+    # References earlier phases in this same plan **by title**, simpler for
     # the model to produce correctly than inventing and cross-referencing ids.
     depends_on: list[str] = Field(default_factory=list)
 

@@ -1,14 +1,17 @@
-"""RunSupervisor — drives one run's phase DAG, spawning a real subagent
+"""RunSupervisor, drives one run's phase DAG, spawning a real subagent
 subprocess per phase and reacting to SIGINT-triggered stops.
 
 Simplifications deliberately made for this skeleton (documented here rather
 than silently built in):
 - A phase interrupted by SIGINT (its scope ends in `stopped`) is left at
-  phase status `running` rather than a dedicated "paused" status — `resume`
-  finds it by that same status and re-spawns it. A phase whose process died
-  without going through BaseAgent's normal exit path is marked `failed`.
+  phase status `running` rather than a dedicated "paused" status, `resume`
+  finds it by that same status and re-spawns *the same scope*, so the agent
+  can read its own checkpoint and skip the steps it already finished. A
+  phase whose process died without going through BaseAgent's normal exit
+  path has no checkpoint, so it restarts from the beginning; one that died
+  outright is marked `failed`.
 - Stop's checkpoint summary is a plain template string, not a second live
-  Claude call — the one real LLM call in this pass is the CMO's planning
+  Claude call, the one real LLM call in this pass is the CMO's planning
   call (`app/planner/cmo_planner.py`); see docs/ARCHITECTURE.md §6.3 for the
   fuller design this simplifies.
 - `resume` with a `redirect` note folds it into the restarted phase's
@@ -23,6 +26,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -83,10 +87,35 @@ class RunSupervisorManager:
             assert run is not None
             phases: list[dict] = run.plan["phases"]
 
-        if redirect:
-            for p in phases:
-                if p["status"] == "running":
+        # A phase left at "running" here has no live process behind it in
+        # this fresh invocation, every `_drive()` call (start or resume)
+        # begins with an empty `state.live`, so a "running" phase at this
+        # point can only be one that was interrupted by a prior stop
+        # (interrupted phases are deliberately left at "running" rather than
+        # given a dedicated "paused" status, precisely so resume can find
+        # them here). The `ready` computation below only ever selects
+        # "pending" phases, so without this reset an interrupted phase could
+        # never be re-selected, it would sit at "running" forever with
+        # nothing driving it, and the run would never reach "completed"
+        # either, since the phase never resolves to completed/failed.
+        #
+        # `resume_scopes` maps those phases to the scope row they left behind.
+        # That row holds `checkpoint_path`, so re-spawning *the same scope*
+        # (rather than a fresh one) is what lets the agent pick up from its
+        # checkpoint instead of replaying the whole step list, and keeps the
+        # phase as one continuous card in the UI rather than two.
+        resume_scopes = await self._find_resumable_scopes(run_id, phases)
+        for p in phases:
+            if p["status"] == "running":
+                resume_id = resume_scopes.get(p["id"])
+                logger.info(
+                    "supervisor: run=%s phase=%r was interrupted, %s",
+                    run_id, p["title"],
+                    f"resuming scope {resume_id} from checkpoint" if resume_id else "restarting (no checkpoint found)",
+                )
+                if redirect:
                     p["task_brief_redirect"] = redirect
+                p["status"] = "pending"
 
         try:
             while True:
@@ -111,7 +140,10 @@ class RunSupervisorManager:
                 ]
                 capacity = settings.max_concurrent_subagents - len(state.live)
                 for phase in ready[: max(0, capacity)]:
-                    await self._spawn(run_id, phase, phases, state.live)
+                    await self._spawn(
+                        run_id, phase, phases, state.live,
+                        resume_scope_id=resume_scopes.pop(phase["id"], None),
+                    )
 
                 finished = [sid for sid, p in state.live.items() if p.returncode is not None]
                 for scope_id in finished:
@@ -127,14 +159,38 @@ class RunSupervisorManager:
             logger.exception("run %s crashed", run_id)
             await self._finish(run_id, phases, "failed")
 
+    async def _find_resumable_scopes(
+        self, run_id: uuid.UUID, phases: list[dict]
+    ) -> dict[str, uuid.UUID]:
+        """phase_id -> the scope this phase left behind when it was stopped,
+        for phases that hold a partial checkpoint to resume from."""
+        interrupted = [p["id"] for p in phases if p["status"] == "running"]
+        if not interrupted:
+            return {}
+        async with async_session() as session:
+            rows = (
+                await session.execute(
+                    select(Scope)
+                    .where(
+                        Scope.run_id == run_id,
+                        Scope.state == "stopped",
+                        Scope.checkpoint_state == "partial",
+                        Scope.phase_id.in_([uuid.UUID(pid) for pid in interrupted]),
+                    )
+                    .order_by(Scope.started_at)
+                )
+            ).scalars().all()
+        # Last stopped scope wins if a phase was stopped more than once.
+        return {str(s.phase_id): s.id for s in rows}
+
     async def _spawn(
         self,
         run_id: uuid.UUID,
         phase: dict,
         phases: list[dict],
         live: dict[uuid.UUID, AgentProcess],
+        resume_scope_id: uuid.UUID | None = None,
     ) -> None:
-        scope_id = uuid.uuid4()
         task_brief = {
             "intent": phase["intent"],
             "expected_outputs": phase["expected_outputs"],
@@ -143,24 +199,36 @@ class RunSupervisorManager:
         if phase.get("task_brief_redirect"):
             task_brief["redirect"] = phase["task_brief_redirect"]
 
+        scope_id = resume_scope_id or uuid.uuid4()
         async with async_session() as session:
-            session.add(
-                Scope(
-                    id=scope_id,
-                    run_id=run_id,
-                    agent_name=phase["assigned_agent"],
-                    phase_id=uuid.UUID(phase["id"]),
-                    state="spawned",
-                    task_brief=task_brief,
+            if resume_scope_id is not None:
+                # Reuse the interrupted scope: its `checkpoint_path` is what
+                # the agent process reads to skip already-completed steps.
+                # `ended_at` is cleared because this scope is live again.
+                await session.execute(
+                    Scope.__table__.update()
+                    .where(Scope.id == resume_scope_id)
+                    .values(state="spawned", ended_at=None, task_brief=task_brief)
                 )
-            )
+            else:
+                session.add(
+                    Scope(
+                        id=scope_id,
+                        run_id=run_id,
+                        agent_name=phase["assigned_agent"],
+                        phase_id=uuid.UUID(phase["id"]),
+                        state="spawned",
+                        task_brief=task_brief,
+                    )
+                )
             await session.commit()
 
         process = AgentProcess(scope_id=scope_id, run_id=run_id)
         pid = await process.start()
         live[scope_id] = process
         logger.info(
-            "supervisor: spawned agents.%s as PID %d (run=%s scope=%s phase=%r)",
+            "supervisor: %s agents.%s as PID %d (run=%s scope=%s phase=%r)",
+            "resumed" if resume_scope_id else "spawned",
             phase["assigned_agent"], pid, run_id, scope_id, phase["title"],
         )
 
@@ -178,7 +246,11 @@ class RunSupervisorManager:
                 parent_scope_id=None,
                 phase_id=uuid.UUID(phase["id"]),
                 type_="phase.started",
-                payload={"title": phase["title"], "assigned_agent": phase["assigned_agent"]},
+                payload={
+                    "title": phase["title"],
+                    "assigned_agent": phase["assigned_agent"],
+                    "resumed": resume_scope_id is not None,
+                },
             )
 
     async def _reconcile(self, run_id: uuid.UUID, scope_id: uuid.UUID, phases: list[dict]) -> None:
@@ -194,7 +266,7 @@ class RunSupervisorManager:
                 event_type = "phase.completed"
                 logger.info("supervisor: agents.%s (scope=%s) completed", scope.agent_name, scope_id)
             elif scope.state == "stopped":
-                # graceful SIGINT checkpoint — leave at "running" (paused);
+                # graceful SIGINT checkpoint, leave at "running" (paused);
                 # resume finds it by this same status.
                 event_type = None
                 logger.info(
@@ -205,7 +277,7 @@ class RunSupervisorManager:
                 phase["status"] = "failed"
                 event_type = "phase.failed"
                 logger.warning(
-                    "supervisor: agents.%s (scope=%s) ended in unexpected state %r — marking phase failed",
+                    "supervisor: agents.%s (scope=%s) ended in unexpected state %r, marking phase failed",
                     scope.agent_name, scope_id, scope.state,
                 )
 

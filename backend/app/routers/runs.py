@@ -1,4 +1,4 @@
-"""/runs — create, list, detail, plan approve/reject, stop, resume, messages,
+"""/runs, create, list, detail, plan approve/reject, stop, resume, messages,
 autonomy. See docs/API.md for the full contract this implements.
 """
 
@@ -17,6 +17,7 @@ from app.orchestrator.event_bus import append_event
 from app.orchestrator.supervisor import manager
 from app.planner.cmo_planner import propose_plan
 from app.planner.schemas import Plan
+from app.usage import PlanUsage
 from app.schemas import (
     AutonomyPatchRequest,
     EventOut,
@@ -37,6 +38,25 @@ from app.schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+async def _record_plan_usage(session: AsyncSession, run_id: uuid.UUID, plan_usage: PlanUsage) -> None:
+    """Emits the real, API-reported spend for the CMO's planning call(s).
+    One event per attempt, so a retry's cost is visible rather than folded
+    invisibly into a single total."""
+    for attempt, usage in enumerate(plan_usage.attempts):
+        await append_event(
+            session,
+            run_id=run_id,
+            scope_id=None,
+            parent_scope_id=None,
+            phase_id=None,
+            type_="usage.recorded",
+            payload={
+                **usage.as_payload(source="cmo_planner", simulated=False),
+                "attempt": attempt + 1,
+            },
+        )
 
 
 def _conflict(run: Run, action: str, required_state: str) -> HTTPException:
@@ -74,7 +94,7 @@ async def create_run(
     session: AsyncSession = Depends(get_session),
 ) -> RunCreateResponse:
     logger.info("create_run: user=%s autonomy_mode=%s title=%r", user.id, body.autonomy_mode, body.title)
-    plan = await propose_plan(body.brief, body.autonomy_mode)
+    plan, plan_usage = await propose_plan(body.brief, body.autonomy_mode)
     logger.info("create_run: planner returned %d phases", len(plan.phases))
 
     run = Run(
@@ -98,6 +118,7 @@ async def create_run(
         type_="plan.proposed",
         payload=plan.model_dump(mode="json"),
     )
+    await _record_plan_usage(session, run.id, plan_usage)
 
     if body.autonomy_mode == "just_run":
         run.state = "running"
@@ -225,7 +246,9 @@ async def reject_plan(
         payload={"note": body.note},
     )
 
-    new_plan = await propose_plan(f"{run.brief}\n\nOperator feedback: {body.note}", run.autonomy_mode)
+    new_plan, plan_usage = await propose_plan(
+        f"{run.brief}\n\nOperator feedback: {body.note}", run.autonomy_mode
+    )
     run.plan = new_plan.model_dump(mode="json")
     await session.commit()
     await append_event(
@@ -237,6 +260,7 @@ async def reject_plan(
         type_="plan.proposed",
         payload=new_plan.model_dump(mode="json"),
     )
+    await _record_plan_usage(session, run.id, plan_usage)
 
     return RunDetailResponse(run=_run_out(run), plan=new_plan)
 
@@ -261,7 +285,7 @@ async def stop_run(run_id: uuid.UUID, session: AsyncSession = Depends(get_sessio
     )
     # `run.state_changed` is what the frontend actually keys its local
     # runState off of (see plan.approved/run.state_changed handling in
-    # lib/dashboard/state.ts's applyEvent) — without this, a client watching
+    # lib/dashboard/state.ts's applyEvent), without this, a client watching
     # this run never learns it left "running" until the eventual terminal
     # event, which meant a second stop click in that window 409'd.
     await append_event(
@@ -275,7 +299,7 @@ async def stop_run(run_id: uuid.UUID, session: AsyncSession = Depends(get_sessio
     )
     # Fire-and-forget: the HTTP response acknowledges within the 500ms budget;
     # the run reaches `stopped` (checkpoint written) asynchronously, observed
-    # via the event stream — see docs/API.md.
+    # via the event stream; see docs/API.md.
     asyncio.create_task(manager.stop_run(run.id))
     logger.info("stop_run: run=%s -> stopping, SIGINT dispatch in flight", run.id)
 
@@ -303,7 +327,7 @@ async def resume_run(
         payload={"redirect": body.redirect},
     )
     # Without this, nothing ever tells a connected client the run left
-    # "stopped" — resume doesn't route through `_finish()` the way a
+    # "stopped", resume doesn't route through `_finish()` the way a
     # completed/failed/stopped run does, so the frontend's local runState
     # was getting stuck at "stopped" forever, leaving the resume button
     # visibly clickable even after resume had already succeeded.

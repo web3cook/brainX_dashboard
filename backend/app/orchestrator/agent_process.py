@@ -1,7 +1,7 @@
 """Spawns and tracks one subagent OS subprocess per scope.
 
 `python -m agents.runner` is invoked as a child of this same container (see
-docs/ARCHITECTURE.md §6.1 — `agents/` is baked/mounted alongside `app/` at
+docs/ARCHITECTURE.md §6.1, `agents/` is baked/mounted alongside `app/` at
 /app/agents). The only identity passed at spawn is the scope id; the agent
 reads its own instructions from its `scopes` row.
 """
@@ -51,7 +51,7 @@ class AgentProcess:
         return None if self._process is None else self._process.returncode
 
     async def stop(self) -> None:
-        """SIGINT, never terminate()/kill() on the happy path — this is what
+        """SIGINT, never terminate()/kill() on the happy path, this is what
         lets the agent write its checkpoint before exiting. A grace-timeout
         SIGKILL is the fallback only if it doesn't exit on its own."""
         if self._process is None or self._process.returncode is not None:
@@ -63,7 +63,7 @@ class AgentProcess:
             logger.info("agent_process: PID %d exited cleanly after SIGINT", self._process.pid)
         except asyncio.TimeoutError:
             logger.warning(
-                "agent_process: PID %d did not exit within %.0fs of SIGINT — sending SIGKILL",
+                "agent_process: PID %d did not exit within %.0fs of SIGINT, sending SIGKILL",
                 self._process.pid, STOP_GRACE_S,
             )
             self._process.kill()

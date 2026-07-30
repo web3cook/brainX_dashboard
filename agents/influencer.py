@@ -1,4 +1,4 @@
-"""Influencer — dummy stand-in for `influencer.*`.
+"""Influencer, dummy stand-in for `influencer.*`.
 
 Real version (not built this pass): finds influencers relevant to the
 product and drafts collaboration/partnership outreach notes for them.
@@ -33,7 +33,7 @@ class InfluencerAgent(BaseAgent):
                 payload={"target": "influencer.pitch_draft"},
             ),
             StepDef(
-                label="Pitch draft complete — tailored openers for the top 3 creators",
+                label="Pitch draft complete, tailored openers for the top 3 creators",
                 kind="write",
                 significance="milestone",
                 payload={"tailored_openers": 3},
@@ -51,7 +51,7 @@ class InfluencerAgent(BaseAgent):
         return [
             ArtifactDef(
                 kind="influencer_list",
-                title="Influencers worth partnering with — ranked by ICP match",
+                title="Influencers worth partnering with, ranked by ICP match",
                 format="csv",
                 content=(
                     "name,platform,icp_match,note\n"

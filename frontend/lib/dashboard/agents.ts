@@ -2,7 +2,7 @@ import type { AgentName } from "@/lib/api/types";
 
 export type { AgentName };
 
-/** Catalog of the real 7 subagents the backend can spawn — must match
+/** Catalog of the real 7 subagents the backend can spawn, must match
  * `scopes.agent_name`'s CHECK constraint (docs/DB_SCHEMA.md) exactly.
  */
 export const AGENTS: Record<AgentName, { glyph: string; label: string; desc: string }> = {

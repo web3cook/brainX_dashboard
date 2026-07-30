@@ -1,4 +1,4 @@
-"""X Scout — dummy stand-in for `social.*`.
+"""X Scout, dummy stand-in for `social.*`.
 
 Real version (not built this pass): people worth connecting with on X,
 plus posts and replies for that platform specifically.
@@ -51,7 +51,7 @@ class XScoutAgent(BaseAgent):
         return [
             ArtifactDef(
                 kind="outreach_list",
-                title="X accounts worth contacting — ranked by audience overlap",
+                title="X accounts worth contacting, ranked by audience overlap",
                 format="csv",
                 content=(
                     "handle,audience_overlap,note\n"

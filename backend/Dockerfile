@@ -1,6 +1,6 @@
 # Build context is the REPO ROOT (see docker-compose.yml: `context: .`), not
 # this directory, because the image needs both `backend/` and the sibling
-# `agents/` package baked in — the orchestrator spawns
+# `agents/` package baked in, the orchestrator spawns
 # `python -m agents.runner ...` as a subprocess of this same container, so
 # `agents/` must sit at /app/agents, importable via the container's cwd.
 FROM python:3.12-slim

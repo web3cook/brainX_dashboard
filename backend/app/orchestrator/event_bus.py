@@ -1,7 +1,7 @@
 """Event append + Postgres LISTEN/NOTIFY fanout.
 
 `append_event` mirrors `agents/db.py::insert_event` exactly (same atomic
-seq-allocation pattern) but through the backend's own SQLAlchemy session —
+seq-allocation pattern) but through the backend's own SQLAlchemy session,
 the backend and the agent subprocesses each own their side of the same
 `run_events` table, never importing each other's code.
 
@@ -93,16 +93,25 @@ class EventBus:
     def _on_notify(self, _connection: Any, _pid: int, _channel: str, payload: str) -> None:
         data = json.loads(payload)
         run_id = uuid.UUID(data["run_id"])
-        for queue in self._subscribers.get(run_id, ()):
-            queue.put_nowait(int(data["seq"]))
+        # (run_id, seq) rather than bare seq: one connection's queue can be
+        # attached to several runs at once, so the consumer has to know which
+        # run woke it up.
+        for queue in list(self._subscribers.get(run_id, ())):
+            queue.put_nowait((run_id, int(data["seq"])))
 
-    def subscribe(self, run_id: uuid.UUID) -> asyncio.Queue:
-        queue: asyncio.Queue = asyncio.Queue()
+    def attach(self, run_id: uuid.UUID, queue: asyncio.Queue) -> None:
+        """Route this run's notifications into an existing queue. A single
+        WebSocket connection owns one queue and attaches it to every run the
+        client has subscribed to."""
         self._subscribers[run_id].add(queue)
-        return queue
 
-    def unsubscribe(self, run_id: uuid.UUID, queue: asyncio.Queue) -> None:
-        self._subscribers[run_id].discard(queue)
+    def detach(self, run_id: uuid.UUID, queue: asyncio.Queue) -> None:
+        subs = self._subscribers.get(run_id)
+        if subs is None:
+            return
+        subs.discard(queue)
+        if not subs:
+            del self._subscribers[run_id]
 
 
 event_bus = EventBus()

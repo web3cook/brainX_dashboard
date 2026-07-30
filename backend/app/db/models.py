@@ -1,8 +1,8 @@
-"""SQLAlchemy models — mirrors docs/DB_SCHEMA.md exactly. That document is the
+"""SQLAlchemy models, mirrors docs/DB_SCHEMA.md exactly. That document is the
 source of truth; if the two ever disagree, the doc wins and this file is wrong.
 
 Every datetime column is explicitly `DateTime(timezone=True)` to match the
-`timestamptz` columns the Alembic migration actually creates — leaving it
+`timestamptz` columns the Alembic migration actually creates, leaving it
 implicit defaults to naive `DateTime`, which asyncpg rejects the moment the
 app binds a tz-aware Python `datetime` against it.
 """

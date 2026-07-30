@@ -54,7 +54,7 @@ services:
     env_file:
       - ./frontend/.env.local
     environment:
-      # Browser-facing — the user's browser talks to the api container via
+      # Browser-facing, the user's browser talks to the api container via
       # its host-mapped port, not the Docker network, so this stays
       # localhost even though both services run in Compose.
       NEXT_PUBLIC_API_URL: http://localhost:8000

@@ -8,7 +8,7 @@ from app.config import settings
 from app.orchestrator.event_bus import event_bus
 from app.routers import approvals, artifacts, bootstrap, ledger, runs, ws
 
-# Uvicorn only configures its own "uvicorn.*" loggers by default — without
+# Uvicorn only configures its own "uvicorn.*" loggers by default, without
 # this, every `logger.info(...)` in app.* modules (run lifecycle, agent
 # spawns) silently goes nowhere below WARNING. This makes `docker compose
 # logs api` show the full story for every run.

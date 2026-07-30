@@ -1,5 +1,5 @@
 /** Thin REST wrapper over the backend's surface (docs/API.md). Every call
- * except bootstrap needs the operator's email — there's no signed
+ * except bootstrap needs the operator's email, there's no signed
  * cross-service token in this pass (see docs/DB_SCHEMA.md's explicit note),
  * so the caller passes it through explicitly rather than this module reading
  * a session itself.
@@ -47,7 +47,7 @@ async function request<T>(
     const body = await res.json().catch(() => ({}));
     const detail = body?.detail ?? res.statusText;
     // A 409 usually just means a state transition already happened (a
-    // double-click, or the run moved on before this request landed) — log
+    // double-click, or the run moved on before this request landed), log
     // it at warn, not error, so it doesn't read as a crash in the console.
      
     console[res.status === 409 ? "warn" : "error"](

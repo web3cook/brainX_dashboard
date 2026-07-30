@@ -9,7 +9,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "brainX — the AI CMO running your entire marketing",
+  title: "brainX, the AI CMO running your entire marketing",
   description:
     "You brief the CMO in chat. It plans, spins up the right agents, and streams every step.",
 };

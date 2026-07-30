@@ -1,9 +1,9 @@
-/** Presentation derivations for the dashboard — pure data only, components
+/** Presentation derivations for the dashboard, pure data only, components
  * attach their own handlers. Rewritten for the real backend: the earlier
  * mock's token-burn chart and spend-by-agent rows had no backing data once
  * wired to the real API (the dummy agents don't simulate a cost model), so
- * this replaces them with what genuinely exists — phase status and step
- * counts — rather than fabricating numbers to keep the old visuals.
+ * this replaces them with what genuinely exists, phase status and step
+ * counts, rather than fabricating numbers to keep the old visuals.
  */
 
 import type { AgentName, RunSummary } from "@/lib/api/types";
@@ -13,6 +13,21 @@ import type { DashboardState, Run } from "./state";
 export const ACID = "#12f94b";
 const AMBER = "#ffb545";
 const DANGER = "#ff5f56";
+
+/** 1234 → "1.2K", 1234567 → "1.23M". Tokens only ever need coarse magnitude
+ * at a glance; the exact figure lives in the analytics breakdown. */
+export function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+/** Sub-cent spend is common here (a cached planning call is ~$0.01), so
+ * round to 4dp below a cent rather than showing a misleading "$0.00". */
+export function usd(n: number): string {
+  if (n > 0 && n < 0.01) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(2)}`;
+}
 
 export type RunCardView = {
   id: string;
@@ -59,7 +74,9 @@ export function runCardView(run: Run): RunCardView {
     borderColor: running ? "#2f5f3f" : failed ? "#5f2f2f" : "#2a2a2a",
     glyphFg: running ? ACID : failed ? DANGER : "#8a8a8a",
     nameFg: running ? "#e6e6e6" : "#b4b4b4",
-    barFg: running ? ACID : failed ? DANGER : stopped ? AMBER : "#3f3f3f",
+    // A shipped run keeps a full green bar; grey is reserved for a card that
+    // has genuinely done nothing yet.
+    barFg: running || done ? ACID : failed ? DANGER : stopped ? AMBER : "#3f3f3f",
   };
 }
 
@@ -73,16 +90,24 @@ export function statsView(state: DashboardState): StatView[] {
   const phases = state.plan?.phases ?? [];
   const donePhases = phases.filter((p) => p.status === "completed").length;
 
+  const totalTokens = state.usage.measured.totalTokens + state.usage.simulated.totalTokens;
+  const totalCost = state.usage.measured.costUsd + state.usage.simulated.costUsd;
+
   return [
     { label: "AGENTS LIVE", value: String(live), sub: `of ${runs.length} in this run`, color: ACID },
-    { label: "STEPS LOGGED", value: String(stepsLogged), sub: "across all agents", color: "#e6e6e6" },
     {
       label: "PHASES DONE",
       value: `${donePhases}/${phases.length}`,
-      sub: state.runState ?? "—",
+      sub: `${stepsLogged} steps logged`,
       color: "#e6e6e6",
     },
-    { label: "NEEDS YOU", value: String(needsYou), sub: "stopped or failed", color: AMBER },
+    {
+      label: "TOKENS",
+      value: fmtTokens(totalTokens),
+      sub: state.usage.simulated.totalTokens > 0 ? "incl. simulated" : "measured",
+      color: "#e6e6e6",
+    },
+    { label: "SPEND", value: usd(totalCost), sub: `${needsYou} need${needsYou === 1 ? "s" : ""} you`, color: AMBER },
   ];
 }
 
@@ -98,7 +123,7 @@ export type Checkpoint = {
 export function checkpointsView(run: Run | undefined): Checkpoint[] {
   const labels = run?.lines ?? [];
   if (labels.length === 0) {
-    return [{ label: "Waiting for the first step…", time: "—", mark: "○", markFg: "#4f4f4f", fg: "#6f6f6f", bd: "#171717" }];
+    return [{ label: "Waiting for the first step…", time: "", mark: "○", markFg: "#4f4f4f", fg: "#6f6f6f", bd: "#171717" }];
   }
   return labels.map((label, i) => ({
     label,

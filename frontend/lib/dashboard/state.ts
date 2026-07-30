@@ -1,4 +1,4 @@
-/** Event-driven dashboard state. Replaces the earlier `setInterval` mock —
+/** Event-driven dashboard state. Replaces the earlier `setInterval` mock,
  * every mutation now either comes from a real REST response (`initRun`) or
  * folds one real `run_events` envelope from the WebSocket (`applyEvent`).
  * There is no more synthetic tick loop.
@@ -8,10 +8,12 @@ import type {
   AgentName,
   AutonomyMode,
   Phase,
+  PhaseStatus,
   Plan,
   RunEventEnvelope,
   RunState as BackendRunState,
   RunSummary,
+  UsagePayload,
 } from "@/lib/api/types";
 
 const TERMINAL_RUN_STATES: BackendRunState[] = ["stopped", "failed", "completed"];
@@ -20,7 +22,7 @@ export const isTerminalRunState = (s: BackendRunState | null) =>
 
 export type RunStatus = "running" | "waiting" | "stopped" | "completed" | "failed";
 
-/** One agent invocation — the frontend's closest concept to a backend Scope,
+/** One agent invocation, the frontend's closest concept to a backend Scope,
  * not a Phase (there is no rendered Phase→Task→Step tree in this pass; see
  * docs/ARCHITECTURE.md §9's noted scope for the deferred full timeline). */
 export type Run = {
@@ -28,7 +30,7 @@ export type Run = {
   name: AgentName;
   task: string;
   status: RunStatus;
-  /** Heuristic — the backend has no numeric progress field, only a stream of
+  /** Heuristic, the backend has no numeric progress field, only a stream of
    * step events, so this climbs with each completed step rather than being
    * read from the server. */
   pct: number;
@@ -50,8 +52,68 @@ export type ChatMessage = {
 
 export type Panel = "analytics" | "runs" | "agents" | "settings" | "profile" | "detail";
 
-/** Cosmetic only — there is no backend concept of guardrails in this pass. */
+/** Cosmetic only, there is no backend concept of guardrails in this pass. */
 export type Guardrail = { label: string; on: boolean };
+
+/** Running token/cost totals, accumulated from `usage.recorded` events.
+ * `measured` is the CMO's real API-reported spend; `simulated` is the dummy
+ * subagents' synthetic figures. Kept separate all the way to the UI so the
+ * distinction is never lost; see MEMO.md. */
+export type UsageBucket = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  costUsd: number;
+};
+
+export type UsageTotals = {
+  measured: UsageBucket;
+  simulated: UsageBucket;
+  byAgent: Record<string, { totalTokens: number; costUsd: number }>;
+};
+
+const emptyBucket = (): UsageBucket => ({
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  totalTokens: 0,
+  costUsd: 0,
+});
+
+export const emptyUsage = (): UsageTotals => ({
+  measured: emptyBucket(),
+  simulated: emptyBucket(),
+  byAgent: {},
+});
+
+function addUsage(totals: UsageTotals, u: UsagePayload): UsageTotals {
+  const key = u.simulated ? "simulated" : "measured";
+  const b = totals[key];
+  const next: UsageTotals = {
+    ...totals,
+    [key]: {
+      inputTokens: b.inputTokens + u.input_tokens,
+      outputTokens: b.outputTokens + u.output_tokens,
+      cacheReadTokens: b.cacheReadTokens + u.cache_read_tokens,
+      cacheWriteTokens: b.cacheWriteTokens + u.cache_write_tokens,
+      totalTokens: b.totalTokens + u.total_tokens,
+      costUsd: b.costUsd + u.cost_usd,
+    },
+  };
+  const who = u.agent_name ?? "AI CMO";
+  const prev = totals.byAgent[who] ?? { totalTokens: 0, costUsd: 0 };
+  next.byAgent = {
+    ...totals.byAgent,
+    [who]: {
+      totalTokens: prev.totalTokens + u.total_tokens,
+      costUsd: prev.costUsd + u.cost_usd,
+    },
+  };
+  return next;
+}
 
 export type DashboardState = {
   runId: string | null;
@@ -61,7 +123,7 @@ export type DashboardState = {
   /** Which phase ids the operator wants to actually run, shown as checkboxes
    * on the plan-approval card. `null` when there's no plan awaiting a
    * selection (no plan yet, or one already approved). Defaults to "every
-   * phase" the moment a plan arrives — approving without touching anything
+   * phase" the moment a plan arrives, approving without touching anything
    * behaves exactly like the old all-or-nothing approve. */
   planSelection: Set<string> | null;
   panel: Panel;
@@ -71,6 +133,7 @@ export type DashboardState = {
   runs: Record<string, Run>;
   guardrails: Guardrail[];
   pastRuns: RunSummary[];
+  usage: UsageTotals;
   lastSeq: number;
 };
 
@@ -92,6 +155,7 @@ export const initialState: DashboardState = {
     { label: "Weekly digest email", on: true },
   ],
   pastRuns: [],
+  usage: emptyUsage(),
   lastSeq: 0,
 };
 
@@ -130,20 +194,40 @@ function upsertRun(
   return { ...runs, [scopeId]: { ...existing, ...patch } };
 }
 
+/** The plan arrives once via `plan.proposed` with every phase `pending`.
+ * The backend tracks real phase status in `runs.plan`, but only broadcasts
+ * the transitions as `phase.*` events, so the client has to fold them back
+ * in. Without this the plan list and the PHASES DONE counter stay frozen at
+ * their proposed state for the whole run. */
+function setPhaseStatus(
+  plan: Plan | null,
+  phaseId: string | null,
+  status: PhaseStatus,
+): Plan | null {
+  if (!plan || !phaseId) return plan;
+  let changed = false;
+  const phases = plan.phases.map((p) => {
+    if (p.id !== phaseId || p.status === status) return p;
+    changed = true;
+    return { ...p, status };
+  });
+  return changed ? { ...plan, phases } : plan;
+}
+
 function phaseTitle(plan: Plan | null, phaseId: string | null): string {
   if (!plan || !phaseId) return "";
   return plan.phases.find((p) => p.id === phaseId)?.title ?? "";
 }
 
 function planApprovalCard(): ChatAction {
-  return { label: "PROPOSED PLAN — choose which phases to run", kind: "approve_plan" };
+  return { label: "PROPOSED PLAN, choose which phases to run", kind: "approve_plan" };
 }
 
 /** Selecting a phase pulls in everything it depends on (you can't run a
  * phase without its prerequisites); deselecting a phase drops everything
  * that depends on it (transitively, in case of a chain). Both run as
  * fixed-point loops over the (tiny, ≤7-phase) plan rather than a real graph
- * walk — simplest correct thing at this scale. */
+ * walk, simplest correct thing at this scale. */
 function selectPhase(phases: Phase[], selected: Set<string>, phaseId: string): Set<string> {
   const next = new Set(selected);
   next.add(phaseId);
@@ -211,7 +295,7 @@ export function reducer(state: DashboardState, action: Action): DashboardState {
       return { ...state, planSelection: selected };
     }
     case "initRun":
-      // Clears chat/selection/panel too — without this, switching to a
+      // Clears chat/selection/panel too, without this, switching to a
       // different run (e.g. opening a past run) would blend its backfilled
       // chat in with whatever was already on screen from the previous one.
       return {
@@ -224,6 +308,7 @@ export function reducer(state: DashboardState, action: Action): DashboardState {
         chat: [],
         selected: null,
         panel: "analytics",
+        usage: emptyUsage(),
         lastSeq: 0,
       };
     case "resetRun":
@@ -237,6 +322,7 @@ export function reducer(state: DashboardState, action: Action): DashboardState {
         selected: null,
         chat: [],
         runs: {},
+        usage: emptyUsage(),
         lastSeq: 0,
       };
     case "setPastRuns":
@@ -267,7 +353,7 @@ function applyEvent(state: DashboardState, event: RunEventEnvelope): DashboardSt
           ...next.chat,
           {
             who: "CMO · now",
-            text: `Here's the plan — ${plan.phases.length} phases across the team.`,
+            text: `Here's the plan, ${plan.phases.length} phases across the team.`,
             action: planApprovalCard(),
           },
         ],
@@ -292,10 +378,13 @@ function applyEvent(state: DashboardState, event: RunEventEnvelope): DashboardSt
     case "plan.rejected":
       next = {
         ...next,
-        chat: [...next.chat, { who: "CMO · now", text: "Got it — replanning given your feedback." }],
+        chat: [...next.chat, { who: "CMO · now", text: "Got it, replanning given your feedback." }],
       };
       break;
     case "phase.started": {
+      // Plan status is folded in regardless of scope_id: the phase list and
+      // the PHASES DONE counter read from `plan`, not from the run cards.
+      next = { ...next, plan: setPhaseStatus(next.plan, event.phase_id, "running") };
       if (!event.scope_id) break;
       next = {
         ...next,
@@ -306,6 +395,15 @@ function applyEvent(state: DashboardState, event: RunEventEnvelope): DashboardSt
       };
       break;
     }
+    case "phase.completed":
+      next = { ...next, plan: setPhaseStatus(next.plan, event.phase_id, "completed") };
+      break;
+    case "phase.failed":
+      next = { ...next, plan: setPhaseStatus(next.plan, event.phase_id, "failed") };
+      break;
+    case "phase.skipped":
+      next = { ...next, plan: setPhaseStatus(next.plan, event.phase_id, "skipped") };
+      break;
     case "scope.spawned": {
       if (!event.scope_id) break;
       next = {
@@ -383,6 +481,9 @@ function applyEvent(state: DashboardState, event: RunEventEnvelope): DashboardSt
           { who: "CMO · now", text: (payload.summary as string) ?? "Checkpoint saved." },
         ],
       };
+      break;
+    case "usage.recorded":
+      next = { ...next, usage: addUsage(next.usage, payload as unknown as UsagePayload) };
       break;
     case "run.state_changed":
       next = { ...next, runState: ((payload.state as string) ?? next.runState) as BackendRunState };

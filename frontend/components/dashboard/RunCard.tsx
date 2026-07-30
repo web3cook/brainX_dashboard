@@ -17,7 +17,7 @@ export function RunCard({ run, onSelect }: Props) {
           onSelect();
         }
       }}
-      aria-label={`${run.name} run — ${run.statusLabel}`}
+      aria-label={`${run.name} run, ${run.statusLabel}`}
       className="bg-card focus-visible:outline-acid flex cursor-pointer flex-col gap-[11px] rounded-[10px] border p-[14px] focus-visible:outline-2"
       style={{ borderColor: run.borderColor }}
     >

@@ -7,7 +7,7 @@ Invoked by the orchestrator as:
 The only identity passed in is the scope id; the agent reads its own
 `task_brief` and `agent_name` from its `scopes` row (docs/ARCHITECTURE.md
 §6.2, "instructions delivery"). Can also be invoked directly for manual
-testing — see docs/DB_SCHEMA.md / the build-order milestone that proves this
+testing; see docs/DB_SCHEMA.md / the build-order milestone that proves this
 lifecycle standalone before anything else is wired to it.
 """
 
@@ -64,6 +64,11 @@ async def main() -> int:
             phase_id=scope["phase_id"],
             parent_scope_id=scope["parent_scope_id"],
         )
+
+        # A partial checkpoint means this scope was SIGINT'd mid-phase and is
+        # now being resumed; pick up where it stopped instead of replaying.
+        if scope.get("checkpoint_state") == "partial" and scope.get("checkpoint_path"):
+            agent.resume_from(scope["checkpoint_path"])
 
         loop = asyncio.get_running_loop()
         agent.install_signal_handler(loop)

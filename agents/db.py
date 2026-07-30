@@ -4,7 +4,7 @@ Deliberately not SQLAlchemy and not shared with `backend/app/db/`: an agent
 process is a short-lived, independently-invoked script (`python -m
 agents.runner ...`), not an import-time dependent of the FastAPI app. It
 opens exactly one `asyncpg` connection for its whole lifetime and uses it for
-both routine progress events and its own SIGINT checkpoint write — see
+both routine progress events and its own SIGINT checkpoint write, see
 docs/ARCHITECTURE.md §6.2b for why the agent does this write itself rather
 than reporting up to the orchestrator.
 """
@@ -35,7 +35,8 @@ async def connect() -> asyncpg.Connection:
 async def fetch_scope(conn: asyncpg.Connection, scope_id: uuid.UUID) -> dict[str, Any]:
     row = await conn.fetchrow(
         """
-        SELECT run_id, agent_name, phase_id, task_brief, parent_scope_id
+        SELECT run_id, agent_name, phase_id, task_brief, parent_scope_id,
+               checkpoint_path, checkpoint_state
         FROM scopes
         WHERE id = $1
         """,
@@ -44,7 +45,7 @@ async def fetch_scope(conn: asyncpg.Connection, scope_id: uuid.UUID) -> dict[str
     if row is None:
         raise LookupError(f"scope {scope_id} not found")
     data = dict(row)
-    # asyncpg returns JSONB columns as raw text without a registered codec —
+    # asyncpg returns JSONB columns as raw text without a registered codec,
     # decode it here so every caller gets a real dict, not a string that
     # happens to look like one.
     data["task_brief"] = json.loads(data["task_brief"])
@@ -124,7 +125,7 @@ async def write_checkpoint(
     checkpoint_path: str,
     checkpoint_state: str,
 ) -> None:
-    """The agent's own SIGINT-triggered write — records where it saved its
+    """The agent's own SIGINT-triggered write, records where it saved its
     state file and marks the scope stopped. See BaseAgent.on_interrupt."""
     await conn.execute(
         """
