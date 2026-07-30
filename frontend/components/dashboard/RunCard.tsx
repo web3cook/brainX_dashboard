@@ -3,10 +3,9 @@ import type { RunCardView } from "@/lib/dashboard/view";
 type Props = {
   run: RunCardView;
   onSelect: () => void;
-  onAction: () => void;
 };
 
-export function RunCard({ run, onSelect, onAction }: Props) {
+export function RunCard({ run, onSelect }: Props) {
   return (
     <div
       role="button"
@@ -76,24 +75,7 @@ export function RunCard({ run, onSelect, onAction }: Props) {
             style={{ width: run.pct, background: run.barFg }}
           />
         </div>
-        <div className="flex-none text-[9.5px] text-[#6f6f6f]">
-          {run.tokens} tok
-        </div>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAction();
-          }}
-          className="flex-none rounded-[5px] border px-2.5 py-[5px] text-[10px] font-bold"
-          style={{
-            color: run.actionFg,
-            background: run.actionBg,
-            borderColor: run.actionBd,
-          }}
-        >
-          {run.actionLabel}
-        </button>
+        <div className="flex-none text-[9.5px] text-[#6f6f6f]">{run.steps}</div>
       </div>
     </div>
   );

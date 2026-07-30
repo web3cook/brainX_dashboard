@@ -1,8 +1,8 @@
-import type { AgentName } from "@/lib/dashboard/agents";
 import type { DashboardState, Panel, Run } from "@/lib/dashboard/state";
 import {
   TAB_DEFS,
   detailView,
+  historyView,
   panelTitle,
   rosterView,
 } from "@/lib/dashboard/view";
@@ -22,10 +22,9 @@ type Props = {
   user: DashboardUser;
   onSetPanel: (panel: Exclude<Panel, "detail">) => void;
   onCloseDetail: () => void;
-  onDetailAction: (run: Run) => void;
   onToggleGuardrail: (index: number) => void;
-  onToggleRosterAgent: (name: AgentName) => void;
   onSignOut: () => void;
+  onOpenPastRun: (id: string) => void;
 };
 
 export function RightPanel({
@@ -34,17 +33,19 @@ export function RightPanel({
   user,
   onSetPanel,
   onCloseDetail,
-  onDetailAction,
   onToggleGuardrail,
-  onToggleRosterAgent,
   onSignOut,
+  onOpenPastRun,
 }: Props) {
   const isDetail = state.panel === "detail" && !!detailRun;
   const activeTab = state.panel === "detail" ? null : state.panel;
 
   return (
-    <div className="border-line bg-rail flex min-h-0 w-[330px] flex-none border-l">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    // `flex-col-reverse` puts the tab rail (last in DOM) visually above the
+    // content on mobile without changing DOM/tab order; `lg:flex-row`
+    // restores the desktop layout of content-left, rail-right.
+    <div className="border-line bg-rail flex w-full flex-none flex-col-reverse border-t lg:h-full lg:w-[330px] lg:min-h-0 lg:flex-row lg:border-l lg:border-t-0">
+      <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
         <div className="border-line flex flex-none items-center gap-2.5 border-b px-4 py-[14px]">
           <div className="text-acid text-[10px] tracking-[.14em]">
             {`// ${panelTitle(state, detailRun)}`}
@@ -61,15 +62,16 @@ export function RightPanel({
           )}
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto p-4">
-          {isDetail && detailRun && (
-            <RunDetailPanel
-              detail={detailView(detailRun)}
-              onAction={() => onDetailAction(detailRun)}
+        <div className="flex flex-1 flex-col gap-[18px] overflow-y-auto p-4 lg:min-h-0">
+          {isDetail && detailRun && <RunDetailPanel detail={detailView(detailRun)} />}
+          {state.panel === "analytics" && <AnalyticsPanel state={state} />}
+          {state.panel === "runs" && (
+            <PastRunsPanel
+              rows={historyView(state.pastRuns)}
+              currentRunId={state.runId}
+              onSelect={onOpenPastRun}
             />
           )}
-          {state.panel === "analytics" && <AnalyticsPanel state={state} />}
-          {state.panel === "runs" && <PastRunsPanel />}
           {state.panel === "settings" && (
             <SettingsPanel
               guardrails={state.guardrails}
@@ -79,16 +81,11 @@ export function RightPanel({
           {state.panel === "profile" && (
             <ProfilePanel user={user} onSignOut={onSignOut} />
           )}
-          {state.panel === "agents" && (
-            <AgentRosterPanel
-              roster={rosterView(state)}
-              onToggle={onToggleRosterAgent}
-            />
-          )}
+          {state.panel === "agents" && <AgentRosterPanel roster={rosterView(state)} />}
         </div>
       </div>
 
-      <nav className="border-line bg-topbar flex w-[52px] flex-none flex-col items-center gap-2 border-l pt-[14px]">
+      <nav className="border-line bg-topbar flex w-full flex-none flex-row items-center justify-center gap-2 border-t py-2 lg:h-full lg:w-[52px] lg:flex-col lg:border-l lg:border-t-0 lg:py-0 lg:pt-[14px]">
         {TAB_DEFS.map((t) => {
           const active = activeTab === t.key;
           return (

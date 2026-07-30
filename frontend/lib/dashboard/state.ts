@@ -1,23 +1,45 @@
-import { AGENTS, TICKS, type AgentName } from "./agents";
+/** Event-driven dashboard state. Replaces the earlier `setInterval` mock —
+ * every mutation now either comes from a real REST response (`initRun`) or
+ * folds one real `run_events` envelope from the WebSocket (`applyEvent`).
+ * There is no more synthetic tick loop.
+ */
 
-export type RunStatus = "running" | "waiting" | "stopped";
+import type {
+  AgentName,
+  AutonomyMode,
+  Phase,
+  Plan,
+  RunEventEnvelope,
+  RunState as BackendRunState,
+  RunSummary,
+} from "@/lib/api/types";
 
+const TERMINAL_RUN_STATES: BackendRunState[] = ["stopped", "failed", "completed"];
+export const isTerminalRunState = (s: BackendRunState | null) =>
+  s !== null && TERMINAL_RUN_STATES.includes(s);
+
+export type RunStatus = "running" | "waiting" | "stopped" | "completed" | "failed";
+
+/** One agent invocation — the frontend's closest concept to a backend Scope,
+ * not a Phase (there is no rendered Phase→Task→Step tree in this pass; see
+ * docs/ARCHITECTURE.md §9's noted scope for the deferred full timeline). */
 export type Run = {
-  id: number;
+  id: string;
   name: AgentName;
   task: string;
   status: RunStatus;
+  /** Heuristic — the backend has no numeric progress field, only a stream of
+   * step events, so this climbs with each completed step rather than being
+   * read from the server. */
   pct: number;
-  tokens: number;
+  steps: number;
   lines: string[];
-  summary?: string | null;
+  summary: string | null;
 };
 
 export type ChatAction = {
   label: string;
-  body: string;
-  confirm: string;
-  agent: AgentName;
+  kind: "approve_plan";
 };
 
 export type ChatMessage = {
@@ -26,363 +48,347 @@ export type ChatMessage = {
   action?: ChatAction | null;
 };
 
-export type Panel =
-  | "analytics"
-  | "runs"
-  | "agents"
-  | "settings"
-  | "profile"
-  | "detail";
+export type Panel = "analytics" | "runs" | "agents" | "settings" | "profile" | "detail";
 
+/** Cosmetic only — there is no backend concept of guardrails in this pass. */
 export type Guardrail = { label: string; on: boolean };
 
 export type DashboardState = {
+  runId: string | null;
+  runState: BackendRunState | null;
+  autonomyMode: AutonomyMode;
+  plan: Plan | null;
+  /** Which phase ids the operator wants to actually run, shown as checkboxes
+   * on the plan-approval card. `null` when there's no plan awaiting a
+   * selection (no plan yet, or one already approved). Defaults to "every
+   * phase" the moment a plan arrives — approving without touching anything
+   * behaves exactly like the old all-or-nothing approve. */
+  planSelection: Set<string> | null;
   panel: Panel;
-  selected: number | null;
-  pickerOpen: boolean;
+  selected: string | null;
   input: string;
-  thinking: boolean;
-  tokens: number;
-  spend: number;
-  rate: number;
-  tick: number;
-  burn: number[];
-  /** Agents checked in the picker but not yet deployed. */
-  pick: Record<string, boolean>;
-  guardrails: Guardrail[];
   chat: ChatMessage[];
-  runs: Run[];
+  runs: Record<string, Run>;
+  guardrails: Guardrail[];
+  pastRuns: RunSummary[];
+  lastSeq: number;
 };
 
-export const TICK_MS = 1400;
-
-/** Both dimensions are fixed; the whole stage scales to fit the viewport. */
-export const STAGE_WIDTH = 1440;
-export const STAGE_HEIGHT = 900;
-
-const USD_PER_TOKEN = 0.000015;
-const SPEND_PER_TOKEN = 0.0000075;
-
 export const initialState: DashboardState = {
+  runId: null,
+  runState: null,
+  autonomyMode: "plan_then_run",
+  plan: null,
+  planSelection: null,
   panel: "analytics",
   selected: null,
-  pickerOpen: false,
   input: "",
-  thinking: false,
-  tokens: 284120,
-  spend: 4.21,
-  rate: 1284,
-  tick: 0,
-  burn: [
-    38, 54, 41, 72, 61, 88, 64, 96, 70, 52, 81, 66, 92, 74, 58, 86, 69, 77, 64,
-    93,
-  ],
-  pick: {},
+  chat: [],
+  runs: {},
   guardrails: [
     { label: "Ask before anything publishes", on: true },
     { label: "Auto-pause on off-voice drafts", on: true },
     { label: "Allow outbound DMs", on: false },
     { label: "Weekly digest email", on: true },
   ],
-  chat: [
-    {
-      who: "YOU · 14:02",
-      text: "We shipped the new API docs. Get us noticed by devs this week.",
-    },
-    {
-      who: "CMO · 14:02",
-      text: "Read your changelog and repo. I'd run SEO on the six docs pages, seed 3 Reddit threads, and queue an X thread from the release notes.",
-    },
-    { who: "YOU · 14:05", text: "Do it, but keep spend under $10 today." },
-    {
-      who: "CMO · 14:05",
-      text: "Cap set. 4 agents deployed — I'll ping you before anything publishes.",
-    },
-    {
-      who: "CMO · 14:23",
-      text: "Writer stopped at your request. Checkpoint 3 of 5 saved.",
-      action: {
-        label: "ACTION PROPOSED",
-        body: "Resume the Writer from checkpoint 3 and hold draft 3 for your review before publishing.",
-        confirm: "resume writer",
-        agent: "Writer",
-      },
-    },
-  ],
-  runs: [
-    {
-      id: 1,
-      name: "SEO",
-      task: "docs cluster · 6 pages",
-      status: "running",
-      pct: 64,
-      tokens: 18200,
-      lines: [
-        "crawled 6 docs pages · 3 thin-content flags",
-        'keyword gap: "typed api client" (vol 2.4K)',
-        "rewriting /docs/quickstart title + h1",
-      ],
-    },
-    {
-      id: 2,
-      name: "Reddit",
-      task: "r/devtools thread seeding",
-      status: "running",
-      pct: 41,
-      tokens: 9700,
-      lines: [
-        "412 threads scanned · 6 matched",
-        "drafting reply 3/6 in your voice",
-        "1 reply held: rules ban self-promo",
-      ],
-    },
-    {
-      id: 3,
-      name: "X",
-      task: "release-notes thread",
-      status: "waiting",
-      pct: 88,
-      tokens: 6100,
-      lines: [
-        "8-post thread drafted",
-        "hook A/B ready for your pick",
-        "awaiting approval to post",
-      ],
-    },
-    {
-      id: 4,
-      name: "GEO",
-      task: "ChatGPT visibility audit",
-      status: "running",
-      pct: 22,
-      tokens: 4400,
-      lines: [
-        "probing 24 buyer questions",
-        "cited in 3/24 answers today",
-        "competitor cited in 11/24",
-      ],
-    },
-    {
-      id: 5,
-      name: "Writer",
-      task: "deep dive · typed API clients",
-      status: "stopped",
-      pct: 60,
-      tokens: 41208,
-      summary:
-        "Drafted 2 of 3 long-form posts in brand voice, pulled 14 competitor references, flagged 1 claim for legal review. Nothing published.",
-      lines: [
-        "voice profile loaded from 41 posts",
-        "draft 1 complete · 1,240 words",
-        "draft 2 complete · 1,510 words",
-        "stopped by you at 14:22",
-      ],
-    },
-  ],
+  pastRuns: [],
+  lastSeq: 0,
 };
 
 export type Action =
-  | { type: "tick" }
   | { type: "setPanel"; panel: Panel }
-  | { type: "selectRun"; id: number }
+  | { type: "selectRun"; id: string }
   | { type: "closeDetail" }
   | { type: "setInput"; value: string }
   | { type: "clearInput" }
-  | { type: "say"; who: string; text: string; action?: ChatAction | null }
-  | { type: "thinking"; value: boolean }
+  | { type: "toggleGuardrail"; index: number }
   | { type: "dismissAction"; index: number }
-  | { type: "stop"; id: number }
-  | { type: "resume"; id: number }
-  | { type: "approve"; id: number }
-  | { type: "stopAll" }
-  | { type: "addAgent"; name: AgentName }
-  | { type: "openPicker" }
-  | { type: "closePicker" }
-  | { type: "togglePick"; name: string }
-  | { type: "resetPick" }
-  | { type: "toggleGuardrail"; index: number };
+  | { type: "setAutonomyMode"; mode: AutonomyMode }
+  | { type: "togglePhase"; phaseId: string }
+  | { type: "initRun"; runId: string; runState: BackendRunState; plan: Plan | null }
+  | { type: "resetRun" }
+  | { type: "setPastRuns"; runs: RunSummary[] }
+  | { type: "addPastRun"; run: RunSummary }
+  | { type: "say"; who: string; text: string }
+  | { type: "applyEvent"; event: RunEventEnvelope };
 
-/** Advances one running agent's stream by a single beat. */
-function advanceRun(run: Run, tick: number): Run {
-  if (run.status !== "running") return run;
-
-  const pool = TICKS[run.name] ?? [];
-  const emits = tick % 3 === 0 && pool.length > 0;
-  const lines = emits
-    ? [...run.lines, pool[Math.floor(tick / 3) % pool.length]].slice(-6)
-    : run.lines;
-
-  return {
-    ...run,
-    lines,
-    pct: Math.min(99, run.pct + 1),
-    tokens: run.tokens + 220 + ((tick * 37) % 180),
+function upsertRun(
+  runs: Record<string, Run>,
+  scopeId: string,
+  patch: Partial<Run>,
+): Record<string, Run> {
+  const existing: Run = runs[scopeId] ?? {
+    id: scopeId,
+    name: "market_scout",
+    task: "",
+    status: "running",
+    pct: 5,
+    steps: 0,
+    lines: [],
+    summary: null,
   };
+  return { ...runs, [scopeId]: { ...existing, ...patch } };
 }
 
-export function reducer(
-  state: DashboardState,
-  action: Action,
-): DashboardState {
-  switch (action.type) {
-    case "tick": {
-      const liveCount = state.runs.filter((r) => r.status === "running").length;
-      const inc = liveCount * 260;
-      return {
-        ...state,
-        runs: state.runs.map((r) => advanceRun(r, state.tick)),
-        tick: state.tick + 1,
-        tokens: state.tokens + inc,
-        spend: Number((state.spend + inc * SPEND_PER_TOKEN).toFixed(4)),
-        rate: liveCount
-          ? 240 + liveCount * 260 + ((state.tick * 53) % 180)
-          : 0,
-        burn: [
-          ...state.burn.slice(1),
-          liveCount ? 40 + ((state.tick * 29) % 60) : 6,
-        ],
-      };
-    }
+function phaseTitle(plan: Plan | null, phaseId: string | null): string {
+  if (!plan || !phaseId) return "";
+  return plan.phases.find((p) => p.id === phaseId)?.title ?? "";
+}
 
+function planApprovalCard(): ChatAction {
+  return { label: "PROPOSED PLAN — choose which phases to run", kind: "approve_plan" };
+}
+
+/** Selecting a phase pulls in everything it depends on (you can't run a
+ * phase without its prerequisites); deselecting a phase drops everything
+ * that depends on it (transitively, in case of a chain). Both run as
+ * fixed-point loops over the (tiny, ≤7-phase) plan rather than a real graph
+ * walk — simplest correct thing at this scale. */
+function selectPhase(phases: Phase[], selected: Set<string>, phaseId: string): Set<string> {
+  const next = new Set(selected);
+  next.add(phaseId);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const p of phases) {
+      if (!next.has(p.id)) continue;
+      for (const dep of p.depends_on) {
+        if (!next.has(dep)) {
+          next.add(dep);
+          changed = true;
+        }
+      }
+    }
+  }
+  return next;
+}
+
+function deselectPhase(phases: Phase[], selected: Set<string>, phaseId: string): Set<string> {
+  const next = new Set(selected);
+  next.delete(phaseId);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const p of phases) {
+      if (next.has(p.id) && p.depends_on.some((dep) => !next.has(dep))) {
+        next.delete(p.id);
+        changed = true;
+      }
+    }
+  }
+  return next;
+}
+
+export function reducer(state: DashboardState, action: Action): DashboardState {
+  switch (action.type) {
     case "setPanel":
       return { ...state, panel: action.panel, selected: null };
-
     case "selectRun":
       return { ...state, selected: action.id, panel: "detail" };
-
     case "closeDetail":
       return { ...state, panel: "analytics", selected: null };
-
     case "setInput":
       return { ...state, input: action.value };
-
     case "clearInput":
       return { ...state, input: "" };
-
-    case "say":
-      return {
-        ...state,
-        chat: [
-          ...state.chat,
-          { who: action.who, text: action.text, action: action.action ?? null },
-        ],
-      };
-
-    case "thinking":
-      return { ...state, thinking: action.value };
-
-    case "dismissAction":
-      return {
-        ...state,
-        chat: state.chat.map((m, i) =>
-          i === action.index ? { ...m, action: null } : m,
-        ),
-      };
-
-    case "stop":
-      return {
-        ...state,
-        runs: state.runs.map((r) =>
-          r.id !== action.id
-            ? r
-            : {
-                ...r,
-                status: "stopped",
-                summary: `Stopped mid-run at ${r.pct}%. ${r.lines.length} steps completed, outputs saved as drafts. Nothing published.`,
-                lines: [...r.lines, "stopped by you · checkpoint saved"],
-              },
-        ),
-      };
-
-    case "resume":
-      return {
-        ...state,
-        runs: state.runs.map((r) =>
-          r.id !== action.id
-            ? r
-            : {
-                ...r,
-                status: "running",
-                summary: null,
-                lines: [...r.lines, "resumed from last checkpoint"].slice(-6),
-              },
-        ),
-      };
-
-    case "approve":
-      return {
-        ...state,
-        runs: state.runs.map((r) =>
-          r.id !== action.id ? r : { ...r, status: "running", pct: 92 },
-        ),
-      };
-
-    case "stopAll":
-      return {
-        ...state,
-        runs: state.runs.map((r) =>
-          r.status !== "running"
-            ? r
-            : {
-                ...r,
-                status: "stopped",
-                summary: `Stopped at ${r.pct}%. Checkpoint saved, outputs kept as drafts.`,
-              },
-        ),
-      };
-
-    case "addAgent": {
-      if (state.runs.some((r) => r.name === action.name)) return state;
-      const id = Math.max(0, ...state.runs.map((r) => r.id)) + 1;
-      return {
-        ...state,
-        runs: [
-          ...state.runs,
-          {
-            id,
-            name: action.name,
-            task: "brief pending · warming up",
-            status: "running",
-            pct: 4,
-            tokens: 320,
-            lines: ["reading brand voice profile", "loading project context"],
-          },
-        ],
-      };
-    }
-
-    case "openPicker":
-      return { ...state, pickerOpen: true };
-
-    case "closePicker":
-      return { ...state, pickerOpen: false };
-
-    case "togglePick":
-      return {
-        ...state,
-        pick: { ...state.pick, [action.name]: !state.pick[action.name] },
-      };
-
-    case "resetPick":
-      return { ...state, pick: {} };
-
     case "toggleGuardrail":
       return {
         ...state,
-        guardrails: state.guardrails.map((g, i) =>
-          i === action.index ? { ...g, on: !g.on } : g,
-        ),
+        guardrails: state.guardrails.map((g, i) => (i === action.index ? { ...g, on: !g.on } : g)),
       };
+    case "dismissAction":
+      return {
+        ...state,
+        chat: state.chat.map((m, i) => (i === action.index ? { ...m, action: null } : m)),
+      };
+    case "setAutonomyMode":
+      return { ...state, autonomyMode: action.mode };
+    case "togglePhase": {
+      if (!state.plan || !state.planSelection) return state;
+      const selected = state.planSelection.has(action.phaseId)
+        ? deselectPhase(state.plan.phases, state.planSelection, action.phaseId)
+        : selectPhase(state.plan.phases, state.planSelection, action.phaseId);
+      return { ...state, planSelection: selected };
+    }
+    case "initRun":
+      // Clears chat/selection/panel too — without this, switching to a
+      // different run (e.g. opening a past run) would blend its backfilled
+      // chat in with whatever was already on screen from the previous one.
+      return {
+        ...state,
+        runId: action.runId,
+        runState: action.runState,
+        plan: action.plan,
+        planSelection: action.plan ? new Set(action.plan.phases.map((p) => p.id)) : null,
+        runs: {},
+        chat: [],
+        selected: null,
+        panel: "analytics",
+        lastSeq: 0,
+      };
+    case "resetRun":
+      return {
+        ...state,
+        runId: null,
+        runState: null,
+        plan: null,
+        planSelection: null,
+        panel: "analytics",
+        selected: null,
+        chat: [],
+        runs: {},
+        lastSeq: 0,
+      };
+    case "setPastRuns":
+      return { ...state, pastRuns: action.runs };
+    case "addPastRun":
+      return { ...state, pastRuns: [action.run, ...state.pastRuns] };
+    case "say":
+      return { ...state, chat: [...state.chat, { who: action.who, text: action.text }] };
+    case "applyEvent":
+      return applyEvent(state, action.event);
   }
 }
 
-export const fmtK = (n: number) =>
-  n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
+function applyEvent(state: DashboardState, event: RunEventEnvelope): DashboardState {
+  if (event.seq <= state.lastSeq) return state; // already applied (backfill overlap)
+  let next: DashboardState = { ...state, lastSeq: event.seq };
+  const payload = event.payload as Record<string, unknown>;
 
-export const usd = (tokens: number) =>
-  `$${(tokens * USD_PER_TOKEN).toFixed(2)}`;
-
-/** Pinned locale so server and client render identical markup. */
-export const fmtNum = (n: number) => n.toLocaleString("en-US");
-
-export const agentGlyph = (name: AgentName) => AGENTS[name].glyph;
+  switch (event.type) {
+    case "plan.proposed": {
+      const plan = payload as unknown as Plan;
+      next = {
+        ...next,
+        plan,
+        planSelection: new Set(plan.phases.map((p) => p.id)),
+        runState: "awaiting_plan_approval",
+        chat: [
+          ...next.chat,
+          {
+            who: "CMO · now",
+            text: `Here's the plan — ${plan.phases.length} phases across the team.`,
+            action: planApprovalCard(),
+          },
+        ],
+      };
+      break;
+    }
+    case "plan.edited": {
+      const plan = payload as unknown as Plan;
+      next = { ...next, plan, planSelection: new Set(plan.phases.map((p) => p.id)) };
+      break;
+    }
+    case "plan.approved":
+      next = {
+        ...next,
+        runState: "running",
+        planSelection: null,
+        // Clears a stale Approve button if this event arrives via backfill
+        // on reconnect, after the plan was already approved earlier.
+        chat: next.chat.map((m) => (m.action?.kind === "approve_plan" ? { ...m, action: null } : m)),
+      };
+      break;
+    case "plan.rejected":
+      next = {
+        ...next,
+        chat: [...next.chat, { who: "CMO · now", text: "Got it — replanning given your feedback." }],
+      };
+      break;
+    case "phase.started": {
+      if (!event.scope_id) break;
+      next = {
+        ...next,
+        runs: upsertRun(next.runs, event.scope_id, {
+          name: payload.assigned_agent as AgentName,
+          task: (payload.title as string) ?? phaseTitle(next.plan, event.phase_id),
+        }),
+      };
+      break;
+    }
+    case "scope.spawned": {
+      if (!event.scope_id) break;
+      next = {
+        ...next,
+        runs: upsertRun(next.runs, event.scope_id, {
+          name: payload.agent_name as AgentName,
+          task: phaseTitle(next.plan, event.phase_id),
+          status: "running",
+        }),
+      };
+      break;
+    }
+    case "step.started":
+    case "step.completed": {
+      if (!event.scope_id) break;
+      const run = next.runs[event.scope_id];
+      const label = (payload.label as string) ?? "";
+      const lines = event.type === "step.started" ? (run?.lines ?? []) : [...(run?.lines ?? []), label].slice(-3);
+      const steps = event.type === "step.completed" ? (run?.steps ?? 0) + 1 : (run?.steps ?? 0);
+      const pct = event.type === "step.completed" ? Math.min(95, (run?.pct ?? 5) + 15) : (run?.pct ?? 5);
+      next = { ...next, runs: upsertRun(next.runs, event.scope_id, { lines, steps, pct }) };
+      break;
+    }
+    case "scope.completed":
+      if (event.scope_id) {
+        next = {
+          ...next,
+          runs: upsertRun(next.runs, event.scope_id, {
+            status: "completed",
+            pct: 100,
+            summary: (payload.summary as string) ?? null,
+          }),
+        };
+      }
+      break;
+    case "scope.summarised":
+      if (event.scope_id) {
+        next = {
+          ...next,
+          runs: upsertRun(next.runs, event.scope_id, {
+            status: "stopped",
+            summary: (payload.summary as string) ?? null,
+          }),
+        };
+      }
+      break;
+    case "scope.failed":
+      if (event.scope_id) {
+        next = { ...next, runs: upsertRun(next.runs, event.scope_id, { status: "failed" }) };
+      }
+      break;
+    case "chat.message":
+      next = {
+        ...next,
+        chat: [
+          ...next.chat,
+          { who: `${(payload.who as string) ?? "YOU"} · now`, text: (payload.text as string) ?? "" },
+        ],
+      };
+      break;
+    case "chat.reply":
+      next = {
+        ...next,
+        chat: [
+          ...next.chat,
+          { who: `${(payload.who as string) ?? "CMO"} · now`, text: (payload.text as string) ?? "" },
+        ],
+      };
+      break;
+    case "checkpoint.written":
+      next = {
+        ...next,
+        chat: [
+          ...next.chat,
+          { who: "CMO · now", text: (payload.summary as string) ?? "Checkpoint saved." },
+        ],
+      };
+      break;
+    case "run.state_changed":
+      next = { ...next, runState: ((payload.state as string) ?? next.runState) as BackendRunState };
+      break;
+    default:
+      break;
+  }
+  return next;
+}

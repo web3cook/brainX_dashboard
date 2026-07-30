@@ -23,8 +23,9 @@
 │  RunView          Timeline projector    Deliverables panel   │
 │  Composer         Approval tray         Autonomy control     │
 └───────────┬──────────────────────────────┬──────────────────┘
-            │ REST (commands)              │ SSE (events)
-            ▼                              ▼
+            │ REST (bootstrap + commands)  │ WebSocket
+            │                              │ (chat + live events,
+            ▼                              ▼  one socket per open run)
 ┌─────────────────────────────────────────────────────────────┐
 │  FastAPI — Harness API                                      │
 │  ┌──────────────┬──────────────┬───────────────────────┐    │
@@ -35,28 +36,34 @@
             ▼                              ▼
 ┌───────────────────────────┐   ┌──────────────────────────────┐
 │  Orchestrator (asyncio)   │   │  Postgres                    │
-│  ┌─────────────────────┐  │   │  runs, run_events,           │
-│  │ CMO Agent Loop      │  │   │  checkpoints, artifacts,      │
-│  │   ├ Market Scout    │  │   │  approvals, queued_messages   │
-│  │   ├ SEO/GEO Analyst │  │   └──────────────────────────────┘
-│  │   ├ Community Scout │  │
-│  │   ├ Outreach Scout  │  │   ┌──────────────────────────────┐
-│  │   └ Content Writer  │  │   │  Tool Registry               │
-│  └─────────────────────┘  │   │  research/seo/geo/reddit/     │
-│  Cancellation tree        │   │  social/content/workspace     │
-└───────────────────────────┘   │  → Fixture layer (mocked)     │
-                                └──────────────────────────────┘
+│  ┌─────────────────────┐  │   │  users, runs, run_events,    │
+│  │ CMO Agent Loop      │  │   │  scopes, checkpoints,         │
+│  │  spawns OS process  │  │   │  artifacts, approvals,        │
+│  │  per subagent task: │  │   │  queued_messages, tool_ledger │
+│  │   ├ Market Scout    │  │   └──────────────────────────────┘
+│  │   ├ SEO/GEO Analyst │  │
+│  │   ├ Community Scout │  │   ┌──────────────────────────────┐
+│  │   ├ X Scout         │  │   │  agents/ (separate package)   │
+│  │   ├ Linkedin Scout  │  │   │  one Python subprocess per     │
+│  │   ├ Content Writer  │  │   │  subagent invocation, SIGINT-  │
+│  │   └ Influencer      │  │   │  interruptible, own Postgres   │
+│  └─────────────────────┘  │   │  connection, dummy fixture     │
+│  SIGINT sent to stop a    │   │  data for this build pass      │
+│  running subagent process │   └──────────────────────────────┘
+└───────────────────────────┘
 ```
+
+See `docs/DB_SCHEMA.md` for the complete table DDL and `docs/API.md` for the full REST + WebSocket contract — both superseded the sketches originally inlined in §5 and §7 below, which now just summarize and link out.
 
 **Stack decisions:**
 
 | Layer | Choice | Rationale |
 |---|---|---|
 | Frontend | Next.js 16 + React 19 + Tailwind v4 | Already scaffolded in repo. |
-| Backend | Python 3.12 + FastAPI + asyncio | Best agent ecosystem; native async fits concurrent subagents and SSE. |
+| Backend | Python 3.12 + FastAPI + asyncio | Best agent ecosystem; native async fits concurrent subagents and subprocess supervision. Runs inside Docker (host only has Python 3.9) — see §12. |
 | DB | Postgres 16 + SQLAlchemy (async) + Alembic | Durable run state. `JSONB` for event payloads. `LISTEN/NOTIFY` for cross-process event fanout. |
-| Streaming | SSE | Unidirectional server→client is the actual shape. Commands go over REST. Simpler than WebSocket, survives proxies, has native reconnect with `Last-Event-ID`. |
-| Runner | In-process asyncio tasks | POC scope. Boundary is drawn so a queue (Celery/Arq) can slot in later without touching the API. |
+| Transport | REST (bootstrap + commands) + one WebSocket per run | Chat is bidirectional, so a unidirectional stream (the original SSE plan) no longer fits once chat and the event stream share a connection. The WebSocket carries chat + live events; every command that must survive a flaky connection or needs a real HTTP response (stop, approve, resume, queue/cancel a message, grant/deny an approval) stays REST. Full contract in `docs/API.md`. |
+| Runner | Orchestrator asyncio tasks, each spawning a real OS subprocess per subagent invocation | Subagents are interruptible via `SIGINT`, not just an in-process cancellation token — this is what lets a stopped agent checkpoint itself and exit cleanly (§6.2). Boundary is drawn so a queue (Celery/Arq) could still slot in later without touching the API. |
 
 ---
 
@@ -189,65 +196,14 @@ The tool registry declares `label_template`, `kind`, and `significance` per tool
 
 ## 5. Data model (Postgres)
 
-```sql
-runs (
-  id uuid PK, user_id, title, brief text,
-  autonomy_mode text,               -- draft_only | plan_then_run | just_run
-  state text, current_phase_id uuid,
-  plan jsonb, last_seq bigint,
-  created_at, updated_at, completed_at
-)
+Full DDL lives in `docs/DB_SCHEMA.md` — this section only summarizes what changed from the original sketch and why.
 
-run_events (
-  run_id uuid FK, seq bigint,
-  ts timestamptz, scope_id uuid, parent_scope_id uuid,
-  phase_id uuid, type text, payload jsonb,
-  PRIMARY KEY (run_id, seq)
-)
--- INDEX (run_id, scope_id), (run_id, type)
+Nine tables: `users`, `runs`, `run_events`, `scopes`, `checkpoints`, `artifacts`, `approvals`, `queued_messages`, `tool_ledger`. Two additions beyond the original design:
 
-scopes (                             -- one row per agent frame
-  id uuid PK, run_id uuid FK, parent_scope_id uuid,
-  agent_name text, phase_id uuid,
-  state text, summary text,          -- the one-line collapse (PRD R1.3)
-  started_at, ended_at
-)
+- **`users`** — didn't exist originally; `runs.user_id` had nothing to reference. Found-or-created by email on `POST /bootstrap`, with **no signed-token verification** between the Next.js session and this backend in this build pass. Acceptable for a single-operator local demo; called out explicitly so it isn't mistaken for an oversight later.
+- **`scopes` gains `task_brief jsonb`, `checkpoint_path text`, `checkpoint_state text`, `pid integer`** — the process-based agent model (§6.2) needs somewhere for an agent to read its own instructions at spawn (`task_brief`) and somewhere to point at the state file it writes on `SIGINT` (`checkpoint_path`/`checkpoint_state`). `pid` supports a best-effort orphan-reconciliation check on API startup.
 
-checkpoints (
-  id uuid PK, run_id uuid FK, seq bigint,
-  reason text,                       -- stop | phase_boundary | failure
-  completed_phases jsonb, findings jsonb,
-  partial_phase_state jsonb, agent_memory jsonb,
-  summary_text text, created_at
-)
-
-artifacts (
-  id uuid PK, run_id uuid FK, scope_id uuid,
-  kind text,                         -- strategy_doc | keyword_table | post_draft | outreach_list
-  title text, format text,           -- markdown | csv | json
-  content text, version int, created_at
-)
-
-approvals (
-  id uuid PK, run_id uuid FK, scope_id uuid,
-  action_type text, proposed_payload jsonb,
-  edited_payload jsonb, preview jsonb,
-  state text,                        -- pending | granted | denied | expired
-  blocks_phase_id uuid,              -- null = run continues freely
-  requested_at, resolved_at
-)
-
-queued_messages (
-  id uuid PK, run_id uuid FK, body text,
-  state text,                        -- queued | delivered | cancelled
-  queued_at, deliver_after_phase_id uuid, delivered_at
-)
-
-tool_ledger (                        -- projection of step events, for PRD R3.4
-  run_id uuid FK, seq bigint, kind text,
-  target text, summary text, ts timestamptz
-)
-```
+State columns (`runs.state`, `scopes.state`, `checkpoint_state`, etc.) are `text` + `CHECK`, not native Postgres `ENUM` — easier to extend with a plain migration while this is still moving.
 
 ---
 
@@ -256,42 +212,62 @@ tool_ledger (                        -- projection of step events, for PRD R3.4
 ### 6.1 Execution model
 
 ```
-RunSupervisor (one asyncio Task per run)
-  ├ owns the run's root CancellationToken
+RunSupervisor (one asyncio Task per run, in-process)
+  ├ owns the run's root CancellationToken (for the CMO's own in-process work:
+  │   planning calls, phase sequencing — see §6.2a)
   ├ drives the phase sequence from the approved plan
   ├ checkpoints at every phase boundary
-  └ for each phase:
-        AgentFrame (CMO)  ── spawns ──▶ AgentFrame (subagent)
-          · own message history (isolated context)
-          · own scope_id
-          · child CancellationToken
-          · own tool allowlist (namespace-scoped)
+  └ for each phase, per assigned subagent:
+        AgentProcess ── asyncio.create_subprocess_exec ──▶ real OS process
+          (python -m agents.runner --scope-id <uuid> --run-id <uuid>)
+          · reads its own task_brief from its `scopes` row at startup — no
+            history passed in-band; the brief itself is the only context
+          · owns its own asyncpg connection (separate from the API's pool)
+          · appends its own step.*/finding.* events directly to run_events
+          · interruptible via SIGINT, not a shared in-process token (§6.2b)
 ```
 
-**Context isolation:** a subagent receives only a task brief and the specific findings it needs — never the parent's full history. It returns a structured result plus a one-line summary. This keeps contexts small, and it is also *why* the UI can collapse a subagent to one line honestly: that line is the actual return value, not a UI-side summarisation.
+This replaced the original in-process `AgentFrame(subagent)` design: subagents are now real child processes with their own PID, not nested async calls sharing the orchestrator's memory space. The reasons a subagent still only receives a task brief (never the parent's full history) are unchanged from the original design — it keeps the process's own working set small, and it's still *why* the UI can collapse it to one line honestly: that line is the agent's actual return value, not a UI-side summarisation.
 
-**Concurrency:** phases with no `depends_on` relationship run concurrently, bounded by a semaphore (default 3). This is what produces the two-cards-updating-side-by-side moment in the demo.
+**Concurrency:** phases with no `depends_on` relationship run concurrently, bounded by a semaphore (default 3) — now a cap on *simultaneous OS processes*, not just async tasks. This is what produces the two-cards-updating-side-by-side moment in the demo, and it also bounds the direct-Postgres-connection count from §6.2b to a small, known number.
 
-### 6.2 Cooperative cancellation
+**Accepted risk, stated plainly:** if the `api` container restarts while subagent processes are its children, those children are reparented (orphaned) rather than cleanly torn down. Mitigation for this build: on API startup, any `scopes` row left `spawned`/`running` with no matching live PID is marked `orphaned`; more substantively, restarting the whole `api` container (not just the API process inside it) kills the entire process group, so container lifecycle is standing in for a real process supervisor (Celery/Arq) in this POC.
 
-Cancellation checks happen at three boundaries only:
+### 6.2 Cancellation — two mechanisms, one per execution model
 
-1. Before dispatching a tool call
-2. After a tool call returns
-3. Before each model inference
+**(a) Tool-call-boundary token cancellation** — unchanged from the original design, and still what governs the CMO orchestrator's own in-process work (the planning call, phase sequencing):
 
 ```python
 async def run_tool(self, call, token):
-    token.raise_if_cancelled()                  # 1
+    token.raise_if_cancelled()                  # 1: before dispatch
     result = await asyncio.wait_for(
         self.registry.dispatch(call), timeout=TOOL_TIMEOUT)
-    token.raise_if_cancelled()                  # 2
+    token.raise_if_cancelled()                  # 2: after return
     return result
 ```
 
-An in-flight tool call is allowed to finish (they are bounded by `TOOL_TIMEOUT`, default 10s). If a stop lands during one, the UI immediately shows "Finishing one last lookup, then stopping" — satisfying the PRD R2.6 latency budget with honesty rather than a lie about instant cancellation.
+**(b) Process-boundary SIGINT cancellation** — new, and what governs a running subagent process:
 
-Cancellation propagates parent → child through the token tree. Each cancelled subagent gets one final chance to emit `scope.summarised` with its partial findings, so a stopped run still yields usable work.
+```python
+# inside agents/runner.py, at process startup
+stop_event = asyncio.Event()
+loop.add_signal_handler(signal.SIGINT, stop_event.set)   # not raw signal.signal —
+                                                          # a raw handler can't safely
+                                                          # await, which is exactly the
+                                                          # "poll a flag" trap this avoids
+...
+for step in self.canned_steps():
+    if stop_event.is_set():
+        await self.on_interrupt()   # write checkpoint file, update scopes row, exit(0)
+        return
+    await self.step(...)
+```
+
+The orchestrator sends `SIGINT` (never `terminate()`/`SIGKILL` on the happy path — a grace-timeout fallback to `SIGKILL` exists only if a process doesn't exit within a few seconds). This is the direct realization of "stop must checkpoint before it exits": the check-between-steps loop above plays exactly the role `token.raise_if_cancelled()` plays in (a), just at process granularity instead of task granularity — the two mechanisms are the same *principle* (check at known boundaries, never kill mid-step) applied to two different concurrency primitives.
+
+An in-flight step is allowed to finish before the check runs (steps are bounded, same as tool calls in (a)). If a stop lands mid-step, the UI shows "Finishing one last lookup, then stopping" — satisfying the PRD R2.6 latency budget honestly rather than lying about instant cancellation.
+
+Cancellation still propagates parent → child: the orchestrator sends SIGINT to every live subagent process for a run being stopped. Each one gets its `on_interrupt()` call — the process equivalent of "one final chance to emit `scope.summarised` with partial findings" — before exiting, so a stopped run still yields usable work.
 
 ### 6.3 Stop → summary → resume
 
@@ -338,36 +314,13 @@ If a queued message would substantially change the plan, the CMO re-plans and re
 
 ## 7. API surface
 
-### Commands (REST)
+Full endpoint-by-endpoint request/response contract lives in `docs/API.md`. Summary:
 
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/runs` | Create from a brief + autonomy mode |
-| `GET` | `/runs` | List (history) |
-| `GET` | `/runs/{id}` | Run detail + current plan |
-| `GET` | `/runs/{id}/events?since={seq}` | Backfill for reconnect |
-| `POST` | `/runs/{id}/plan/approve` | Approve, optionally with edited plan |
-| `POST` | `/runs/{id}/plan/reject` | Reject with a note |
-| `POST` | `/runs/{id}/stop` | Request stop |
-| `POST` | `/runs/{id}/resume` | Resume, optionally with a redirect |
-| `POST` | `/runs/{id}/messages` | Queue a message |
-| `DELETE` | `/runs/{id}/messages/{mid}` | Cancel a queued message |
-| `PATCH` | `/runs/{id}/autonomy` | Change mode mid-run |
-| `POST` | `/approvals/{id}/grant` | Approve, optionally with an edited payload |
-| `POST` | `/approvals/{id}/deny` | Deny with a reason |
-| `GET` | `/runs/{id}/artifacts` | List deliverables |
-| `GET` | `/artifacts/{id}/download` | Download |
-| `GET` | `/runs/{id}/ledger` | What it read / wrote / published |
+- **`POST /bootstrap`** — the first-visit REST call. Finds-or-creates the operator's `users` row by email, returns their run list, renders the dashboard shell before any socket exists.
+- **REST commands** — `/runs` (create/list/detail/events-backfill), plan approve/reject, `/runs/{id}/stop` (dedicated endpoint, deliberately **never** accepted over the WebSocket — see below), `/runs/{id}/resume`, queue/cancel a message, `PATCH .../autonomy`, approvals grant/deny, artifacts list/download, the read/write/publish ledger.
+- **`GET /runs/{id}/live`** — the one **WebSocket**, opened after bootstrap. Replaces the original SSE design because chat is inherently bidirectional: this single socket carries the live event stream *and* chat outbound, and accepts `chat.message` inbound. Handshake takes `?since={seq}`, backfills via the same `run_events WHERE seq > $1` query the original SSE reconnect used, then tails live. Every other inbound action (stop, approve, resume, queue) is deliberately REST, not a WS frame — those need a real HTTP response to be trustworthy over a flaky connection, which a fire-and-forget socket message doesn't give you.
 
-### Stream (SSE)
-
-```
-GET /runs/{id}/stream          Last-Event-ID: <seq>
-```
-
-Server replays from `seq+1`, then tails live. Reconnect is native browser behaviour plus a `WHERE seq > $1` query. This is why tab-close survival is nearly free architecturally, even though we are not polishing that UI (PRD §4 cut).
-
-**Cross-process fanout:** Postgres `LISTEN/NOTIFY` on `run_events_channel`. Works with multiple API workers without adding Redis.
+**Cross-process fanout:** unchanged — Postgres `LISTEN/NOTIFY` on `run_events_channel`. Works with multiple API workers without adding Redis, and works identically whether the frontend is listening over WebSocket or polling the backfill endpoint directly.
 
 ---
 
@@ -399,9 +352,11 @@ Every fixture-backed namespace is listed in `MEMO.md`. The agent loop, tool disp
 
 ## 9. Frontend architecture
 
+### Target shape (unchanged in spirit, transport renamed)
+
 ```
 app/runs/[id]/page.tsx
-  useRunStream(runId)            → SSE + backfill, returns event list
+  useRunSocket(runId)             → WebSocket + backfill, returns event list + chat
   useTimelineProjection(events)  → folds events into a Phase/Scope/Step tree
   ├ RunHeader                    → the "right now" line (PRD R1.2)
   ├ AutonomyControl
@@ -418,6 +373,16 @@ app/runs/[id]/page.tsx
 
 **Rendering cost.** At 60+ steps with sub-second updates, naive re-rendering will jank. Mitigations: virtualised step lists inside expanded scopes, `React.memo` on `StepRow` keyed by `seq`, and event batching on a `requestAnimationFrame` tick.
 
+### What this build pass actually implements
+
+The dashboard predates this backend design (built from a Figma-style import) and has a flat run-cards-plus-tabs shape rather than the `app/runs/[id]` Phase/Scope/Step tree above. Rather than a UI redesign in the same pass as standing up the backend, this build keeps that existing shape and drives it from real data:
+
+- `lib/api/useRunSocket.ts` replaces the mocked `setInterval` tick loop with the real WebSocket above.
+- `lib/dashboard/state.ts`'s reducer gains an `applyEvent(event)` action that folds one real `run_events` row into the existing flat `Run` shape — a `Run` here is closest to a **Scope**, not a Phase; there is no phase-level grouping yet.
+- Two small additions land **on top of the existing shape**, reusing components that already exist rather than building new ones: a plan-approval moment (the chat's existing action-card component, `ChatAction`/`confirmChatAction`) and a 3-option autonomy selector at brief-submission time.
+
+**Explicitly deferred** (the backend emits the underlying events; no UI renders them in the target shape yet): the collapsible Phase→Task→Step timeline, the non-blocking `ApprovalTray` with badge count, `DeliverablesPanel`, the ledger view, and mid-run autonomy changes. This gap is intentional and named, not an oversight — see `docs/API.md` for the event types that already exist server-side, ready for that UI whenever it's built.
+
 ---
 
 ## 10. Known risks
@@ -432,12 +397,17 @@ app/runs/[id]/page.tsx
 
 ---
 
-## 11. Build sequence (3 days)
+## 11. Build sequence — this skeleton pass
 
-**Day 1 — spine.** Postgres schema + migrations; event log write/read; SSE stream with backfill; run supervisor with a hardcoded 3-phase plan; timeline projection rendering a real (fake-tooled) run end to end.
+Superseded by milestones, not days, since the toolchain/topology decisions (Docker-only Python 3.12, subprocess-based agents, dummy agent intelligence) reshape what's actually buildable first:
 
-**Day 2 — depth and control.** Real agent loop + planning; subagents with isolated context and scope nesting; full tool registry + fixtures; collapse/expand behaviour; stop → checkpoint → summary → redirect → resume; queued messages.
+1. **Spine** — Postgres schema + Alembic migration, `docker compose up` (db+api healthy), `POST /bootstrap` working.
+2. **One dummy agent, standalone** — `agents/base.py` + `agents/market_scout.py` + `agents/runner.py`, invoked directly via CLI and manually `kill -INT`'d, proving the full spawn → work → checkpoint-on-SIGINT → exit lifecycle in isolation.
+3. **CMO planner** — the one real Claude call; `POST /runs` returns a validated `Plan`; no execution yet.
+4. **Orchestrator wiring** — `RunSupervisor` spawns the dummy agent per approved phase; events flow; backfill via REST polling only, no socket yet.
+5. **WebSocket** — `/runs/{id}/live` replaces polling; backfill + live tail + inbound chat.
+6. **Stop → SIGINT → checkpoint end-to-end**, through the real `POST /runs/{id}/stop` — sequenced *after* the socket exists specifically so the demo can watch the stop happen live.
+7. **Remaining four dummy agents** — mechanical repeats of step 2's pattern.
+8. **Frontend wiring** — API client, `useRunSocket`, the `state.ts` reducer rewrite, the agent-roster remap, `DashboardApp.tsx` wiring, the plan-approval card, the autonomy selector.
 
-**Day 3 — trust and polish.** Publish approvals with preview and inline edit; non-blocking approval tray; failure states and the failure injector; deliverables panel; visual pass; MEMO.md; demo video.
-
-Ship-order rule: **the stop/resume loop lands before approvals.** It is the differentiator and the thing the video is built around.
+Ship-order rule, unchanged from the original plan and still true here: **the stop/resume loop lands before approval polish.** It remains the differentiator and the thing any demo should be built around.

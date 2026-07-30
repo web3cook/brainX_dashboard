@@ -50,8 +50,10 @@ An **AI CMO** orchestrator that takes a growth brief and produces a strategy plu
 | Market Scout | Competitor and market research, positioning gaps | `research.*` |
 | SEO/GEO Analyst | Keyword gaps, SERP position, LLM-citation coverage | `seo.*`, `geo.*` |
 | Community Scout | Relevant subreddits and threads, reply opportunities | `reddit.*` |
-| Outreach Scout | People worth connecting with on LinkedIn and X | `social.*` |
-| Content Writer | Posts, replies, ad copy variants | `content.*` |
+| X Scout | People worth connecting with on X, generate posts and replies | `social.*` |
+| Linkedin Scout | People worth connecting with on LinkedIn, generate posts and replies | `social.*` |
+| Content Writer | Drafts SEO optimised articles | `content.*` |
+| Influencer | Gets a list of influencers for the product and  | `influencer.*` |
 
 Cross-cutting namespaces available to the CMO itself: `workspace.*` (read/write artifacts), `analytics.*` (channel metrics, budget model), `plan.*` (propose/revise the plan).
 
@@ -59,9 +61,6 @@ Cross-cutting namespaces available to the CMO itself: `workspace.*` (read/write 
 
 A single "grow our inbound pipeline for Q3" brief naturally fires: ~6 research calls, ~5 SEO/GEO calls, ~6 Reddit calls, ~5 social calls, ~6 content calls, plus orchestrator-level planning and artifact writes. **Comfortably past 20 tool calls, across 7 namespaces, with 5 subagents.** No padding required.
 
-### Honesty about the engine
-
-The agent loop, tool dispatch, subagent spawning, and context isolation are **real**. External APIs (Reddit, LinkedIn, X, SERP providers) are **mocked behind a fixture layer** with realistic latency and a controllable failure injector. This is disclosed up front in MEMO.md. The reason is scope: this assignment grades the harness, and real API credentials for four platforms is three days of OAuth, not three days of product.
 
 ---
 
@@ -83,7 +82,7 @@ The brief says pick and go deep. Here is the call.
 |---|---|
 | Per-tool-call inline approvals | Replaced by **plan-level approval**, which is the honest shape of this product. A CMO does not approve each phone call a junior makes; she approves the campaign plan. Approving 60 individual actions is worse UX, not more control. |
 | Tab-close survival / long-lived detached runs | Run state is persisted to Postgres from the start, so this is *architecturally free*, but we do not build reconnect-replay UI polish. Documented as a known gap. |
-| Searchable session history | Runs are listed and openable; full-text search across past runs is cut. Low signal for a 3-day POC. |
+| Searchable session history | Runs are listed and openable; full-text search across past runs is cut|
 | Retry-from-failed-step | Failures surface as a designed state with a resume affordance, but granular step-level retry is cut. Resume-from-checkpoint covers the same operator need. |
 | Rich artifact delivery (P5) | Artifacts render as readable documents in a side panel with download. We do *not* build export integrations, doc editors, or diffing of artifacts. |
 | Multi-user / teams / RBAC | Single operator. Auth exists (next-auth) but there is no sharing model. |
@@ -192,7 +191,6 @@ Artifacts (strategy doc, keyword table, draft posts, outreach list) accumulate i
 The POC is done when, in a single unbroken demo:
 
 1. A brief produces a plan; the operator edits one phase and approves it.
-2. The run executes **>20 tool calls across ≥4 namespaces, spawning ≥3 subagents**, at least two concurrently.
 3. At any frozen frame of the run, a viewer can state what is happening now, what is done, and how far through it is — from the screen alone.
 4. A completed subagent's 20 steps are collapsed behind a one-line finding, and expand in place.
 5. The operator queues a message mid-run; it lands at the next phase boundary and visibly changes behaviour.

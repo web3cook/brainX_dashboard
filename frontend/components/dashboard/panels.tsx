@@ -1,12 +1,8 @@
-import type { AgentName } from "@/lib/dashboard/agents";
 import type { DashboardState, Guardrail } from "@/lib/dashboard/state";
 import {
-  HISTORY,
-  OUTPUTS,
   PROFILE_ROWS,
-  burnView,
-  spendRowsView,
   type DetailView,
+  type HistoryRow,
   type RosterRow,
 } from "@/lib/dashboard/view";
 import { Switch } from "./Switch";
@@ -16,15 +12,17 @@ const SectionLabel = ({ children }: { children: React.ReactNode }) => (
   <div className="text-[9.5px] tracking-[.12em] text-[#6f7f6f]">{children}</div>
 );
 
+const PHASE_FG: Record<string, string> = {
+  pending: "#6f6f6f",
+  running: "#ffb545",
+  completed: "#12f94b",
+  skipped: "#6f6f6f",
+  failed: "#ff5f56",
+};
+
 /* ---------------------------------------------------------------- detail */
 
-export function RunDetailPanel({
-  detail,
-  onAction,
-}: {
-  detail: DetailView;
-  onAction: () => void;
-}) {
+export function RunDetailPanel({ detail }: { detail: DetailView }) {
   return (
     <div className="flex flex-col gap-[18px]">
       <div className="flex items-center gap-2.5">
@@ -78,35 +76,13 @@ export function RunDetailPanel({
               {c.mark}
             </span>
             <span className="flex-1">{c.label}</span>
-            <span className="text-[9px] text-[#5f5f5f]">{c.time}</span>
           </div>
         ))}
       </div>
 
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onAction}
-          className="flex-1 rounded-md border py-2.5 text-[10.5px] font-bold"
-          style={{
-            color: detail.actionFg,
-            background: detail.actionBg,
-            borderColor: detail.actionBd,
-          }}
-        >
-          {detail.actionLabel}
-        </button>
-        <button
-          type="button"
-          className="rounded-md border border-[#2a2a2a] bg-transparent px-[13px] py-2.5 text-[10.5px] text-[#b4b4b4] hover:border-[#3a3a3a]"
-        >
-          outputs
-        </button>
-      </div>
-
       <div className="border-line flex justify-between border-t pt-[14px] text-[10.5px] text-[#7f7f7f]">
-        <span>{detail.tokens} tokens</span>
-        <span className="text-acid">{detail.cost}</span>
+        <span>{detail.steps}</span>
+        <span className="text-acid">use “+ new run” / topbar stop to control this run</span>
       </div>
     </div>
   );
@@ -115,57 +91,45 @@ export function RunDetailPanel({
 /* ------------------------------------------------------------- analytics */
 
 export function AnalyticsPanel({ state }: { state: DashboardState }) {
-  const burn = burnView(state);
-  const spendRows = spendRowsView(state);
+  const phases = state.plan?.phases ?? [];
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <div className="mb-2.5 text-[9.5px] tracking-[.12em] text-[#6f7f6f]">
-          LIVE TOKEN BURN · 60 MIN
+      <div className="flex flex-col gap-2">
+        <SectionLabel>RUN</SectionLabel>
+        <div className="flex justify-between text-[11px] text-[#c8c8c8]">
+          <span>state</span>
+          <span className="text-acid font-bold">{state.runState ?? "—"}</span>
         </div>
-        <div className="flex h-20 items-end gap-[3px]">
-          {burn.map((b, i) => (
-            <div
-              key={i}
-              className="bg-acid flex-1 rounded-[1px] transition-[height] duration-700 ease-linear"
-              style={{ height: b.height, opacity: b.opacity }}
-            />
-          ))}
-        </div>
-        <div className="mt-[7px] flex justify-between text-[9px] text-[#5f5f5f]">
-          <span>-60m</span>
-          <span>now</span>
+        <div className="flex justify-between text-[11px] text-[#c8c8c8]">
+          <span>autonomy</span>
+          <span className="font-bold">{state.autonomyMode.replace(/_/g, " ")}</span>
         </div>
       </div>
 
       <div className="flex flex-col gap-2.5">
-        <SectionLabel>SPEND BY AGENT · TODAY</SectionLabel>
-        {spendRows.map((s) => (
-          <div key={s.name} className="flex flex-col gap-[5px]">
-            <div className="flex justify-between text-[10.5px]">
-              <span className="text-[#c8c8c8]">{s.name}</span>
-              <span className="text-acid">{s.amount}</span>
-            </div>
-            <div className="bg-track h-[3px] rounded-sm">
-              <div
-                className="bg-acid-dim h-full rounded-sm transition-[width] duration-500 ease-linear"
-                style={{ width: s.pct }}
-              />
-            </div>
+        <SectionLabel>PLAN</SectionLabel>
+        {phases.length === 0 && (
+          <div className="text-[10.5px] text-[#6f6f6f]">
+            No plan yet — send the CMO a brief to get one.
           </div>
-        ))}
-      </div>
-
-      <div className="border-line flex flex-col gap-[11px] border-t pt-4">
-        <SectionLabel>OUTPUT THIS WEEK</SectionLabel>
-        {OUTPUTS.map((o) => (
+        )}
+        {phases.map((p, i) => (
           <div
-            key={o.label}
-            className="flex justify-between text-[10.5px] text-[#9f9f9f]"
+            key={p.id}
+            className="bg-card flex flex-col gap-1 rounded-md border border-[#171d17] px-3 py-2"
           >
-            <span>{o.label}</span>
-            <span className="text-ink font-bold">{o.value}</span>
+            <div className="flex justify-between gap-2 text-[10.5px]">
+              <span className="text-[#c8c8c8]">
+                {i + 1}. {p.title}
+              </span>
+              <span style={{ color: PHASE_FG[p.status] ?? "#6f6f6f" }}>
+                {p.status}
+              </span>
+            </div>
+            <div className="text-[9.5px] text-[#6f6f6f]">
+              {p.assigned_agent.replace(/_/g, " ")} · ~{p.est_steps} steps
+            </div>
           </div>
         ))}
       </div>
@@ -175,35 +139,44 @@ export function AnalyticsPanel({ state }: { state: DashboardState }) {
 
 /* ------------------------------------------------------------- past runs */
 
-export function PastRunsPanel() {
+export function PastRunsPanel({
+  rows,
+  currentRunId,
+  onSelect,
+}: {
+  rows: HistoryRow[];
+  currentRunId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  if (rows.length === 0) {
+    return <div className="text-[11px] text-[#6f6f6f]">No past runs yet.</div>;
+  }
   return (
     <div className="flex flex-col gap-[9px]">
-      {HISTORY.map((h) => (
-        <div
-          key={`${h.name}-${h.task}`}
-          className="bg-card flex flex-col gap-[7px] rounded-[7px] border border-[#171d17] px-3 py-[11px]"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-acid w-4 flex-none text-[11px]">
-              {h.glyph}
-            </span>
-            <span className="flex-1 text-[11.5px] font-bold">{h.name}</span>
-            <span
-              className="text-[9px] tracking-[.08em]"
-              style={{ color: h.fg }}
-            >
-              {h.status}
-            </span>
-          </div>
-          <div className="text-[10px] leading-[1.5] text-[#8a8a8a]">
-            {h.task}
-          </div>
-          <div className="flex justify-between text-[9.5px] text-[#5f5f5f]">
-            <span>{h.dur}</span>
-            <span className="text-acid">{h.cost}</span>
-          </div>
-        </div>
-      ))}
+      {rows.map((h) => {
+        const active = h.id === currentRunId;
+        return (
+          <button
+            key={h.id}
+            type="button"
+            onClick={() => onSelect(h.id)}
+            aria-current={active}
+            className="bg-card flex cursor-pointer flex-col gap-[7px] rounded-[7px] border px-3 py-[11px] text-left hover:border-[#2f5f3f]"
+            style={{ borderColor: active ? "#2f5f3f" : "#171d17" }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="flex-1 truncate text-[11.5px] font-bold">{h.title}</span>
+              <span className="text-[9px] tracking-[.08em]" style={{ color: h.fg }}>
+                {h.state}
+              </span>
+            </div>
+            <div className="flex justify-between text-[9.5px] text-[#5f5f5f]">
+              <span>{h.createdAt}</span>
+              {active && <span className="text-acid">currently open</span>}
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -219,21 +192,11 @@ export function SettingsPanel({
 }) {
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-[9px]">
-        <SectionLabel>DAILY SPEND CAP</SectionLabel>
-        <div className="flex items-center gap-2.5">
-          <div className="bg-track h-1 flex-1 rounded-sm">
-            <div className="bg-acid h-full w-[17%] rounded-sm" />
-          </div>
-          <span className="text-[11px] font-bold">$25.00</span>
-        </div>
-        <div className="text-[9.5px] text-[#5f5f5f]">
-          agents pause automatically at the cap
-        </div>
-      </div>
-
       <div className="flex flex-col gap-2.5">
         <SectionLabel>GUARDRAILS</SectionLabel>
+        <div className="text-[9.5px] leading-[1.5] text-[#5f5f5f]">
+          Cosmetic in this build — not enforced by the backend yet.
+        </div>
         {guardrails.map((t, i) => (
           <button
             key={t.label}
@@ -250,14 +213,6 @@ export function SettingsPanel({
             <Switch on={t.on} />
           </button>
         ))}
-      </div>
-
-      <div className="border-line flex flex-col gap-[9px] border-t pt-4">
-        <SectionLabel>BRAND VOICE</SectionLabel>
-        <div className="text-[10.5px] leading-[1.7] text-[#9f9f9f]">
-          Learned from 41 posts, your docs, and 3 competitor decks.{" "}
-          <span className="text-acid">re-train ›</span>
-        </div>
       </div>
     </div>
   );
@@ -300,12 +255,6 @@ export function ProfilePanel({
       </div>
 
       <div className="border-line flex flex-col items-start gap-[9px] border-t pt-4">
-        <div className="text-[10.5px] text-[#9f9f9f]">
-          Billing · <span className="text-acid">manage ›</span>
-        </div>
-        <div className="text-[10.5px] text-[#9f9f9f]">
-          Team · <span className="text-acid">invite ›</span>
-        </div>
         <button
           type="button"
           onClick={onSignOut}
@@ -320,21 +269,13 @@ export function ProfilePanel({
 
 /* ---------------------------------------------------------------- roster */
 
-export function AgentRosterPanel({
-  roster,
-  onToggle,
-}: {
-  roster: RosterRow[];
-  onToggle: (name: AgentName) => void;
-}) {
+export function AgentRosterPanel({ roster }: { roster: RosterRow[] }) {
   return (
     <div className="flex flex-col gap-[9px]">
       {roster.map((a) => (
-        <button
+        <div
           key={a.name}
-          type="button"
-          onClick={() => onToggle(a.name)}
-          className="bg-card flex cursor-pointer items-center gap-2.5 rounded-[7px] border px-[11px] py-2.5 text-left"
+          className="bg-card flex items-center gap-2.5 rounded-[7px] border px-[11px] py-2.5"
           style={{ borderColor: a.borderColor }}
         >
           <div
@@ -345,18 +286,12 @@ export function AgentRosterPanel({
             {a.glyph}
           </div>
           <div className="min-w-0 flex-1">
-            <div
-              className="text-[11.5px] font-bold"
-              style={{ color: a.nameFg }}
-            >
-              {a.name}
+            <div className="text-[11.5px] font-bold" style={{ color: a.nameFg }}>
+              {a.label}
             </div>
-            <div className="truncate text-[9.5px] text-[#6f6f6f]">
-              {a.state}
-            </div>
+            <div className="truncate text-[9.5px] text-[#6f6f6f]">{a.state}</div>
           </div>
-          <Switch on={a.on} />
-        </button>
+        </div>
       ))}
     </div>
   );
