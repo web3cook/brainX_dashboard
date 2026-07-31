@@ -44,7 +44,7 @@ export function RightPanel({
     // `flex-col-reverse` puts the tab rail (last in DOM) visually above the
     // content on mobile without changing DOM/tab order; `lg:flex-row`
     // restores the desktop layout of content-left, rail-right.
-    <div className="border-line bg-rail flex w-full flex-none flex-col-reverse border-t lg:h-full lg:w-[330px] lg:min-h-0 lg:flex-row lg:border-l lg:border-t-0">
+    <div className="border-line bg-rail flex w-full flex-none flex-col-reverse border-t lg:relative lg:h-full lg:w-[330px] lg:min-h-0 lg:flex-row lg:border-l lg:border-t-0 lg:pr-[52px]">
       <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
         <div className="border-line flex flex-none items-center gap-2.5 border-b px-4 py-[14px]">
           <div className="text-acid text-[10px] tracking-[.14em]">
@@ -85,7 +85,10 @@ export function RightPanel({
         </div>
       </div>
 
-      <nav className="border-line bg-topbar flex w-full flex-none flex-row items-center justify-center gap-2 border-t py-2 lg:h-full lg:w-[52px] lg:flex-col lg:border-l lg:border-t-0 lg:py-0 lg:pt-[14px]">
+      <nav
+        aria-label="Panels"
+        className="group border-line bg-topbar flex w-full flex-none flex-row items-center justify-center gap-2 border-t py-2 transition-[width,box-shadow] duration-200 ease-out lg:absolute lg:top-0 lg:right-0 lg:bottom-0 lg:z-2 lg:h-full lg:w-[52px] lg:flex-col lg:items-stretch lg:justify-start lg:overflow-hidden lg:border-l lg:border-t-0 lg:py-0 lg:pt-[14px] lg:hover:w-[178px] lg:hover:shadow-[-10px_0_28px_rgba(0,0,0,.5)]"
+      >
         {TAB_DEFS.map((t) => {
           const active = activeTab === t.key;
           return (
@@ -96,14 +99,19 @@ export function RightPanel({
               title={t.label}
               aria-label={t.label}
               aria-current={active}
-              className="flex h-[34px] w-[34px] items-center justify-center rounded-[7px] border text-[13px]"
+              className="flex h-[34px] w-[34px] flex-none items-center justify-center gap-2.5 overflow-hidden rounded-[7px] border text-[13px] lg:mx-[9px] lg:w-auto lg:justify-start lg:px-2"
               style={{
                 background: active ? "#0f1f12" : "transparent",
                 borderColor: active ? "#2f5f3f" : "transparent",
                 color: active ? "#12f94b" : "#6f6f6f",
               }}
             >
-              {t.glyph}
+              <span aria-hidden="true" className="flex-none text-center lg:w-[18px]">
+                {t.glyph}
+              </span>
+              <span className="hidden whitespace-nowrap text-[11px] opacity-0 transition-opacity duration-150 group-hover:opacity-100 lg:inline">
+                {t.label}
+              </span>
             </button>
           );
         })}
